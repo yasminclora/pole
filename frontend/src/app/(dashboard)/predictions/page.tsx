@@ -10,13 +10,23 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function getToken() {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("token");
+  }
+  return null;
+}
+
 async function apiFetch(path: string, params: Record<string, any> = {}) {
   try {
+    const token = getToken();
     const url = new URL(`${API}${path}`);
     Object.entries(params).forEach(([k, v]) => {
       if (v != null && v !== "") url.searchParams.set(k, String(v));
     });
-    const r = await fetch(url.toString());
+    const r = await fetch(url.toString(), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return await r.json();
   } catch (e) {
@@ -26,9 +36,13 @@ async function apiFetch(path: string, params: Record<string, any> = {}) {
 }
 
 async function apiPost(path: string, body: Record<string, any> = {}) {
+  const token = getToken();
   const r = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(body),
   });
   const data = await r.json().catch(() => ({}));

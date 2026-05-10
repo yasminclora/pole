@@ -11,63 +11,72 @@ export interface WsMessage {
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8000'
 
 /**
- * Hook WebSocket sécurisé.
- * - Passe le JWT en query param `?token=...` (requis par le backend)
- * - Backoff exponentiel sur la reconnexion (3s → 6s → 12s … max 30s)
- * - Erreurs JSON logguées (non silencieuses)
+ * Hook WebSocket sécurisé - connexion retardée pour ne pas bloquer le rendu.
  */
 export function useWebSocket(onMessage: (msg: WsMessage) => void) {
   const user        = useSelector((s: RootState) => s.auth.user)
   const accessToken = useSelector((s: RootState) => s.auth.accessToken)
   const cbRef       = useRef(onMessage)
   const wsRef       = useRef<WebSocket | null>(null)
-  const timer       = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const actif       = useRef(true)
-  const delay       = useRef(3000)   // backoff initial 3 s
+  const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const actifRef    = useRef(true)
+  const delayRef    = useRef(3000)
 
   cbRef.current = onMessage
 
   useEffect(() => {
     if (!user?.id_user || !accessToken) return
-    actif.current = true
-    delay.current = 3000
+    
+    actifRef.current = true
+    delayRef.current = 3000
 
     const connect = () => {
-      if (!actif.current) return
+      if (!actifRef.current) return
+      
+      // Ne pas crasher si erreur - try/catch autour de WebSocket
+      let ws: WebSocket | null = null
+      try {
+        const url = `${WS_BASE}/ws/${user.id_user}?token=${encodeURIComponent(accessToken)}`
+        ws = new WebSocket(url)
+        wsRef.current = ws
 
-      const url = `${WS_BASE}/ws/${user.id_user}?token=${encodeURIComponent(accessToken)}`
-      const ws  = new WebSocket(url)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        delay.current = 3000   // reset backoff on successful connect
-      }
-
-      ws.onmessage = (e) => {
-        try {
-          cbRef.current(JSON.parse(e.data) as WsMessage)
-        } catch (err) {
-          console.warn('[WS] Message JSON invalide :', e.data, err)
+        ws.onopen = () => {
+          delayRef.current = 3000
         }
-      }
 
-      ws.onclose = () => {
-        if (!actif.current) return
-        timer.current = setTimeout(() => {
-          delay.current = Math.min(delay.current * 2, 30_000)  // max 30s
-          connect()
-        }, delay.current)
-      }
+        ws.onmessage = (e) => {
+          try {
+            cbRef.current(JSON.parse(e.data) as WsMessage)
+          } catch { /* ignore */ }
+        }
 
-      ws.onerror = () => ws.close()
+        ws.onclose = () => {
+          if (!actifRef.current) return
+          timerRef.current = setTimeout(() => {
+            delayRef.current = Math.min(delayRef.current * 2, 30_000)
+            connect()
+          }, delayRef.current)
+        }
+
+        ws.onerror = () => {
+          ws?.close()
+        }
+      } catch (err) {
+        console.warn('[WS] Connexion echouee:', err)
+      }
     }
 
-    connect()
+    // Retarder la connexion de 2 secondes pour ne pas bloquer le rendu initial
+    const initTimeout = setTimeout(connect, 2000)
 
     return () => {
-      actif.current = false
-      if (timer.current) clearTimeout(timer.current)
-      wsRef.current?.close()
+      actifRef.current = false
+      if (timerRef.current) clearTimeout(timerRef.current)
+      clearTimeout(initTimeout)
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
     }
   }, [user?.id_user, accessToken])
 }

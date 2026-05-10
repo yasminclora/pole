@@ -20,10 +20,11 @@ import { cn } from '@/lib/utils'
 export default function Sidebar() {
   const [collapsed,    setCollapsed]  = useState(false)
   const [mobileOpen,  setMobileOpen] = useState(false)
-  const [openSections, setOpen]       = useState<string[]>([])
+  const [openSections, setOpen]       = useState<string[]>(['Ordres de travail', 'Demandes d\'intervention', 'Équipements', 'Équipes', 'Stock'])
   const pathname  = usePathname()
   const router    = useRouter()
   const dispatch  = useDispatch()
+  const user      = useSelector((s: RootState) => s.auth.user)
   const role      = useSelector((s: RootState) => s.auth.user?.role) as Role | undefined
   const idPole    = useSelector((s: RootState) => s.auth.user?.id_pole)
   const idUser    = useSelector((s: RootState) => s.auth.user?.id_user)
@@ -68,14 +69,13 @@ export default function Sidebar() {
     })
   }, [pathname])
 
-  if (!role) return null
+  // Debug - afficher le role
+  console.log('[Sidebar] Role:', role, 'User:', user)
 
+  if (!role) return <div className="p-4 text-red-500">Pas de rôle défini</div>
+
+  // Afficher TOUTES les sections sans filtrage par rôle
   const visibleSections = NAV_SECTIONS
-    .filter(s => s.allowedRoles.includes(role))
-    .map(s => ({
-      ...s,
-      items: s.items.filter(i => i.allowedRoles.includes(role)),
-    }))
 
   const toggleSection = (title: string) => {
     setOpen(prev =>
