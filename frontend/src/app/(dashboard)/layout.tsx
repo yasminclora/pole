@@ -1,0 +1,57 @@
+'use client'
+import { useEffect, useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
+import { useRouter } from 'next/navigation'
+import { RootState } from '@/store/store'
+import { loadFromStorage } from '@/store/slices/authSlice'
+import { useSessionTimeout } from '@/hooks/useSessionTimeout'
+import Sidebar from '@/components/layout/Sidebar'
+import TopBar from '@/components/layout/TopBar'
+
+
+
+export default function DashboardLayout({
+  children
+}: {
+  children: React.ReactNode
+}) {
+  const dispatch   = useDispatch()
+  const router     = useRouter()
+  const isLoggedIn = useSelector((s: RootState) => s.auth.isLoggedIn)
+  const [darkMode, setDarkMode] = useState(false)
+  const [ready,    setReady]    = useState(false)
+
+  useEffect(() => {
+    dispatch(loadFromStorage() as any)
+    setReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (ready && !isLoggedIn) router.push('/login')
+  }, [ready, isLoggedIn])
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [darkMode])
+
+  // Gestion du timeout de session (30 min d'inactivité)
+  useSessionTimeout(isLoggedIn)
+
+  if (!ready || !isLoggedIn) return null
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
+      <Sidebar/>
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <TopBar darkMode={darkMode} toggleDark={() => setDarkMode(!darkMode)}/>
+        <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 p-6">
+          {children}
+        </main>
+      </div>
+    </div>
+  )
+}
