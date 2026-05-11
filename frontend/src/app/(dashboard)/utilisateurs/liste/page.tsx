@@ -466,8 +466,7 @@ export default function ListeUtilisateursPage() {
                         {new Date(user.date_embauche).toLocaleDateString('fr-FR')}
                       </p>
                       <p className="text-gray-400 text-xs">
-                        {user.genre === 'HOMME' ? '👨' : '👩'} {user.genre}
-                      </p>
+{user.genre === 'HOMME' ? 'Homme' : 'Femme'}                      </p>
                     </td>
 
                     <td className="px-4 py-3">

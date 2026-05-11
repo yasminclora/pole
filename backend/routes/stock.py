@@ -19,25 +19,30 @@ router = APIRouter(prefix="/stock", tags=["Stock"])
 # ─────────────────────────────────────────────────────────────────────
 # GET /stock/search?q=MOTEUR ELECTRIQUE
 # GET /stock/search?q=STK-0001
-# Recherche par désignation (ILIKE) OU code_stock exact
+# GET /stock/search?q=B4313R2003-01
+# Recherche par designation, code_stock OU code equipement (composante)
 # ─────────────────────────────────────────────────────────────────────
 @router.get("/search")
 def search_piece(q: str, db: Session = Depends(get_db)):
     """
-    Recherche une pièce par :
-      - code_stock   : STK-0001  (exact, insensible casse)
-      - designation  : MOTEUR    (ILIKE %query%)
-    Retourne la liste des pièces avec leurs composantes liées.
+    Recherche une piece par :
+      - code_stock   : STK-0001  (contient)
+      - designation  : MOTEUR    (contient)
     """
+    if not q or not q.strip():
+        return []
+    
     q_clean = q.strip().upper()
+    print(f"[Stock Search] Query: {q_clean}")
 
     pieces = db.query(PieceStock).filter(
         or_(
-            func.upper(PieceStock.code_stock)  == q_clean,
-            func.upper(PieceStock.designation).contains(q_clean),
+            PieceStock.code_stock.contains(q_clean),
+            PieceStock.designation.contains(q_clean),
         )
     ).order_by(PieceStock.designation).limit(20).all()
 
+    print(f"[Stock Search] Found: {len(pieces)} pieces")
     return [_serialize_piece(p) for p in pieces]
 
 
@@ -66,7 +71,8 @@ def get_piece_by_composante(equipment_code: str, db: Session = Depends(get_db)):
 
 # ─────────────────────────────────────────────────────────────────────
 # GET /stock/liste?page=1&limit=20&search=&emplacement=
-# Liste paginée de toutes les pièces en stock
+# Liste paginee de toutes les pieces en stock
+# Recherche par code_stock, designation OU code equipement (composante)
 # ─────────────────────────────────────────────────────────────────────
 @router.get("/liste")
 def list_pieces(
@@ -77,7 +83,7 @@ def list_pieces(
     db: Session = Depends(get_db)
 ):
     """
-    Liste paginée des pièces en stock avec filtres.
+    Liste paginee des pieces en stock avec filtres.
     """
     query = db.query(PieceStock)
 
@@ -142,6 +148,8 @@ async def create_reservation(
     gestionnaires = db.query(Utilisateur).filter(
         Utilisateur.role == RoleEnum.GESTIONNAIRE_STOCK
     ).all()
+    print(f"[Stock] Reservation created: {reservation.id_reservation}, Gestionnaires trouves: {len(gestionnaires)}")
+    
     notif = {
         "type"         : "RESERVATION_PIECE",
         "id_reservation": reservation.id_reservation,
@@ -149,10 +157,11 @@ async def create_reservation(
         "code_piece"   : piece.code_stock if piece else None,
         "designation"  : piece.designation if piece else None,
         "quantite"     : reservation.quantite_demandee,
-        "message"      : f"Nouvelle réservation de pièce en attente (OT #{reservation.id_ot})",
+        "message"      : f"Nouvelle reservation de piece en attente (OT #{reservation.id_ot})",
     }
     for g in gestionnaires:
-        await _notif_manager.send_personal_message(g.id_user, notif)
+        print(f"[Stock] Sending notif to gestionnaire: {g.id_user} - {g.email}")
+        await _notif_manager.send_personal_message(user_id=g.id_user, message=notif)
 
     return {"message": "Réservation créée", "id_reservation": reservation.id_reservation}
 
@@ -185,7 +194,7 @@ def list_reservations(
     reservations = query.order_by(ReservationPiece.date_demande.desc()).offset((page - 1) * limit).limit(limit).all()
 
     return {
-        "data": [_serialize_reservation(r) for r in reservations],
+        "data": [_serialize_reservation(r, db) for r in reservations],
         "total": total,
         "page": page,
         "limit": limit,
@@ -232,10 +241,24 @@ async def livrer_reservation(
     """
     Marque une réservation comme livrée (passe de VALIDEE à LIVREE).
     Body: { quantite_livree }
+    La livraison n'est possible que si la date_prevue de l'OT est atteinte.
     """
+    from datetime import datetime
+    from models.ot import OrdreTravail
+    
     reservation = db.query(ReservationPiece).filter(ReservationPiece.id_reservation == id_reservation).first()
     if not reservation:
         raise HTTPException(status_code=404, detail="Réservation introuvable")
+    
+    # Vérifier que la date_prevue de l'OT est atteinte
+    ot = db.query(OrdreTravail).filter(OrdreTravail.id_ot == reservation.id_ot).first()
+    if ot and ot.date_prevue:
+        now = datetime.now()
+        if now < ot.date_prevue:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La livraison n'est possible qu'à partir du {ot.date_prevue.strftime('%d/%m/%Y à %H:%M')}"
+            )
 
     reservation.statut          = StatutReservation.LIVREE
     reservation.quantite_livree = data.get("quantite_livree", reservation.quantite_demandee)
@@ -291,18 +314,41 @@ def annuler_reservation(
     return {"message": "Réservation annulée"}
 
 
-# HELPER : sérialisation réservation
+# HELPER : serialisation reservation
 # ─────────────────────────────────────────────────────────────────────
-def _serialize_reservation(res: ReservationPiece) -> dict:
+def _serialize_reservation(res: ReservationPiece, db: Session = None) -> dict:
+    # Recuperer la date_prevue de l'OT associe
+    date_prevue = None
+    numero_ot = None
+    equipement_code = None
+    equipement_description = None
+    
+    if db and res.id_ot:
+        from models.ot import OrdreTravail
+        ot = db.query(OrdreTravail).filter(OrdreTravail.id_ot == res.id_ot).first()
+        if ot:
+            if ot.date_prevue:
+                date_prevue = ot.date_prevue.isoformat()
+            numero_ot = ot.numero_ot
+            if ot.equipement:
+                equipement_code = ot.equipement.equipment_code
+                equipement_description = ot.equipement.description
+    
     return {
         "id_reservation": res.id_reservation,
         "id_piece": res.id_piece,
         "code_stock": res.piece.code_stock if res.piece else None,
         "designation": res.piece.designation if res.piece else None,
+        "description": res.piece.description if res.piece else None,
         "id_ot": res.id_ot,
+        "numero_ot": numero_ot,
+        "date_prevue": date_prevue,
+        "equipement_code": equipement_code,
+        "equipement_description": equipement_description,
         "id_intervention": res.id_intervention,
         "id_mecanicien": res.id_mecanicien,
         "mecanicien_nom": res.mecanicien.nom if res.mecanicien else None,
+        "mecanicien_role": res.mecanicien.role.value if res.mecanicien and res.mecanicien.role else None,
         "quantite_demandee": res.quantite_demandee,
         "quantite_livree": res.quantite_livree,
         "statut": res.statut.value if res.statut else None,
@@ -318,15 +364,18 @@ def _serialize_reservation(res: ReservationPiece) -> dict:
 # HELPER : sérialisation pièce + composantes liées
 # ─────────────────────────────────────────────────────────────────────
 def _serialize_piece(piece: PieceStock) -> dict:
-    composantes = [
-        {
-            "equipment_code": cs.equipement.equipment_code,
-            "description":    cs.equipement.description,
-            "level":          cs.equipement.hierarchy_level,
-        }
-        for cs in piece.composantes
-        if cs.equipement
-    ]
+    composantes = []
+    for cs in piece.composantes:
+        if not cs.equipement:
+            continue
+        mr = cs.equipement.machine_racine
+        composantes.append({
+            "equipment_code":     cs.equipement.equipment_code,
+            "description":        cs.equipement.description,
+            "level":              cs.equipement.hierarchy_level,
+            "machine_racine_code": mr.equipment_code if mr else None,
+            "machine_racine_desc": mr.description if mr else None,
+        })
     return {
         "id_piece":         piece.id_piece,
         "code_stock":       piece.code_stock,

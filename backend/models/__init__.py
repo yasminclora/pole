@@ -18,4 +18,4 @@ from models.historique_interventions import (
 )
 
 # ── Archives opérationnelles (interventions validées par le méthodiste) ──
-from models.historique_intervention import SourceHistorique
+from models.historique_intervention import InterventionArchivee

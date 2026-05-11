@@ -220,11 +220,9 @@ export default function MesOTPage() {
               <thead style={{backgroundColor:'#003B7A'}}>
                 <tr>
                   <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">N° OT</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Machine Racine</th>
                   <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Équipement</th>
                   <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Priorité</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Statut</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Date prévue</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Créé par</th>
                   <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap pr-4">Action</th>
                 </tr>
               </thead>
@@ -241,6 +239,15 @@ export default function MesOTPage() {
                     </td>
 
                     <td className="px-3 py-4 min-w-[140px]">
+                      {ot.equipement?.machine_racine_code ? (
+                        <>
+                          <p className="font-mono text-xs font-semibold text-[#003B7A]">{ot.equipement.machine_racine_code}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{ot.equipement.machine_racine_desc}</p>
+                        </>
+                      ) : <span className="text-gray-400 text-xs">—</span>}
+                    </td>
+
+                    <td className="px-3 py-4 min-w-[140px]">
                       {ot.equipement ? (
                         <>
                           <p className="font-mono text-xs font-semibold text-[#003B7A]">{ot.equipement.equipment_code}</p>
@@ -251,30 +258,20 @@ export default function MesOTPage() {
 
                     <td className="px-3 py-4"><UrgBadge v={ot.priorite}/></td>
 
-                    <td className="px-3 py-4"><StatutBadge v={ot.statut}/></td>
-
-                    <td className="px-3 py-4 text-xs text-gray-500 whitespace-nowrap">
-                      {ot.date_prevue ? fmtDate(ot.date_prevue) : '—'}
-                    </td>
-
-                    <td className="px-3 py-4 text-xs text-gray-500">
-                      {ot.methodiste?.nom || '—'}
-                    </td>
-
                     <td className="px-4 py-4 text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => router.push(`/dashboard/ot/${ot.id_ot}`)}
+                          onClick={() => router.push(`/ot/${ot.id_ot}`)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
                             border border-gray-300 text-gray-700 hover:bg-gray-100 transition-all">
-                          <Eye size={12}/>Détail
+                          <Eye size={12}/>Voir
                         </button>
                         {(ot.statut === 'ASSIGNE' || ot.statut === 'EN_COURS') && (
                           <button
-                            onClick={() => router.push(`/dashboard/ot/${ot.id_ot}/executer`)}
+                            onClick={() => router.push(`/ot/${ot.id_ot}/executer`)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold
                               bg-[#003B7A] text-white hover:bg-[#002a5a] transition-all shadow-sm hover:shadow-md">
-                            <Wrench size={12}/>Exécuter
+                            <Wrench size={12}/>Ouvrir
                           </button>
                         )}
                       </div>

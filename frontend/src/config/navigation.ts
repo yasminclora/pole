@@ -28,7 +28,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title       : 'Tableau de bord',
     icon        : LayoutDashboard,
     allowedRoles: ['ADMIN','METHODISTE','CHEF_POLE','CHEF_EQUIPE',
-                   'MECANICIEN','TECHNICIEN','HSE'],
+                   'MECANICIEN','TECHNICIEN','HSE','GESTIONNAIRE_STOCK'],
     items: [],
   },
 
@@ -74,45 +74,58 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-// Section DI — déjà dans ton navigation.ts
 {
-  title       : 'Interventions',
+  title       : 'Demandes d\'intervention',
   icon        : AlertTriangle,
   allowedRoles: ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE', 'CHEF_POLE', 'METHODISTE', 'HSE'],
   items: [
     {
-      label       : 'Créer une DI',
-      href        : '/di/creer',          
-      allowedRoles: ['MECANICIEN', 'TECHNICIEN'],
+      label       : 'Creer une DI',
+      href        : '/di/creer',
+      allowedRoles: ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE'],
     },
     {
       label       : 'Mes DI',
-      href        : '/di/mes-di',         
-      allowedRoles: ['MECANICIEN', 'TECHNICIEN'],
+      href        : '/di/mes-di',
+      allowedRoles: ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE'],
     },
-{
+    {
       label       : 'Valider les DI',
-      href        : '/di/valider',        
-      allowedRoles: ['METHODISTE'],       
+      href        : '/di/valider',
+      allowedRoles: ['METHODISTE'],
+    },
+  ],
+},
+
+{
+  title       : 'Ordres de Travail',
+  icon        : ClipboardList,
+  allowedRoles: ['ADMIN','METHODISTE','CHEF_POLE','CHEF_EQUIPE',
+                 'MECANICIEN','TECHNICIEN','HSE','GESTIONNAIRE_STOCK'],
+  items: [
+    {
+      label       : 'Mes OT',
+      href        : '/ot/mes-ot',
+      allowedRoles: ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE'],
     },
     {
       label       : 'Liste OT',
       href        : '/ot/liste',
-      allowedRoles: ['METHODISTE', 'CHEF_POLE', 'ADMIN', 'CHEF_EQUIPE', 'HSE','MECANICIEN', 'TECHNICIEN'],
-    },
-    {
-      label       : 'Mes OT',
-      href        : '/ot/mes-ot',
-      allowedRoles: ['MECANICIEN', 'TECHNICIEN'],
+      allowedRoles: ['METHODISTE', 'CHEF_POLE', 'ADMIN', 'CHEF_EQUIPE', 'HSE'],
     },
     {
       label       : 'Validation OT',
       href        : '/ot/a-valider',
-      allowedRoles: ['CHEF_EQUIPE', 'HSE', 'CHEF_POLE', 'ADMIN'],
+      allowedRoles: ['CHEF_EQUIPE', 'HSE', 'METHODISTE', 'CHEF_POLE', 'ADMIN'],
     },
     {
-      label       : 'Archiver les OT',
+      label       : 'Archives OT',
       href        : '/ot/archives',
+      allowedRoles: ['METHODISTE', 'ADMIN'],
+    },
+    {
+      label       : 'Nouvelle intervention historique',
+      href        : '/historique/ajouter',
       allowedRoles: ['METHODISTE', 'ADMIN'],
     },
   ],
@@ -149,17 +162,17 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 
 
-  {
+{
     title       : 'Stock',
     icon        : Package,
-    allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN'],
+    allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN','TECHNICIEN','CHEF_EQUIPE'],
     items: [
-      { label: 'Rechercher',       href: '/stock',
-        allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN'] },
-      { label: 'Liste des pièces', href: '/stock/pieces',
-        allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN'] },
-      { label: 'Réservations',     href: '/stock/reservation',
-        allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN'] },
+      { label: 'Stock et pieces', href: '/stock/pieces',
+        allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN','TECHNICIEN','CHEF_EQUIPE'] },
+      { label: 'Recherche piece par equipement', href: '/stock/recherche',
+        allowedRoles: ['MECANICIEN','TECHNICIEN','CHEF_EQUIPE'] },
+      { label: 'Reservations',     href: '/stock/reservation',
+        allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK'] },
     ],
   },
  

@@ -12,7 +12,11 @@ export interface UserDisponible {
 
 export const otService = {
 
-  liste: async (params?: { id_pole?: number; statut?: string; type_ot?: string; id_assigne?: number }) => {
+  liste: async (params?: {
+    id_pole?: number; statut?: string; type_ot?: string;
+    id_assigne?: number; id_zone?: number;
+    date_debut?: string; date_fin?: string;
+  }) => {
     const res = await api.get('/ot/', { params })
     return res.data
   },
@@ -27,15 +31,32 @@ export const otService = {
     return res.data
   },
 
-  demarrer: async (id: number, id_realisateur: number) => {
-    const res = await api.post(`/ot/${id}/demarrer`, { id_realisateur })
+  demarrer: async (id: number, data: {
+    id_realisateur: number
+    type_travail?: string
+    description_travail?: string
+    observations?: string
+    composante_remplacee?: number
+  }) => {
+    const res = await api.post(`/ot/${id}/demarrer`, data)
     return res.data
+  },
+
+  statsArchives: async (id_pole?: number) => {
+    const res = await api.get('/ot/archives/stats', { params: { id_pole } })
+    return res.data
+  },
+
+  exportArchivesCSV: async (params?: {
+    id_pole?: number; id_zone?: number;
+    date_debut?: string; date_fin?: string; type_ot?: string;
+  }) => {
+    const res = await api.get('/ot/archives/export', { params, responseType: 'blob' })
+    return res as any
   },
 
   /**
    * Récupère les maintenanciers disponibles pour un OT.
-   * Utilise l'endpoint unifié /ot/{id_ot}/mecaniciens-disponibles qui tient compte
-   * des quarts réels via get_quart_avec_echange().
    */
   getMecaniciensDisponibles: async (id_ot: number): Promise<UserDisponible[]> => {
     const res = await api.get(`/ot/${id_ot}/mecaniciens-disponibles`)
@@ -44,7 +65,6 @@ export const otService = {
 
   /**
    * @deprecated Utiliser getMecaniciensDisponibles(id_ot) à la place.
-   * Conservé temporairement pour compatibilité avec AssignModal.
    */
   getDisponibles: async (id_pole: number, classe: string = 'GLOBALE', date_prevue?: string): Promise<UserDisponible[]> => {
     const params: any = { id_pole, classe }

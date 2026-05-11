@@ -19,6 +19,15 @@ from services.dashboard_service import (
     get_tendance_annuelle,
     get_journal,
     get_features_ml,
+    # Live OT/DI/Intervention
+    get_live_kpi,
+    get_ot_by_status,
+    get_di_by_status,
+    get_intervention_by_status,
+    get_ot_by_zone,
+    get_ot_by_pole,
+    get_di_by_pole,
+    get_recent_activity,
 )
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -140,3 +149,64 @@ def route_journal(
 @router.get("/features-ml")
 def route_features_ml(db: Session = Depends(get_db)):
     return get_features_ml(db)
+
+
+# ── LIVE (OT / DI) ─────────────────────────────────────────────────
+
+@router.get("/live/kpi")
+def route_live_kpi(
+    id_pole: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return get_live_kpi(db, id_pole=id_pole)
+
+
+@router.get("/live/ot-by-status")
+def route_ot_by_status(
+    id_pole: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return get_ot_by_status(db, id_pole=id_pole)
+
+
+@router.get("/live/di-by-status")
+def route_di_by_status(
+    id_pole: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return get_di_by_status(db, id_pole=id_pole)
+
+
+@router.get("/live/intervention-by-status")
+def route_intervention_by_status(
+    id_pole: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return get_intervention_by_status(db, id_pole=id_pole)
+
+
+@router.get("/live/ot-by-zone")
+def route_ot_by_zone(
+    id_pole: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return get_ot_by_zone(db, id_pole=id_pole)
+
+
+@router.get("/live/ot-by-pole")
+def route_ot_by_pole(db: Session = Depends(get_db)):
+    return get_ot_by_pole(db)
+
+
+@router.get("/live/di-by-pole")
+def route_di_by_pole(db: Session = Depends(get_db)):
+    return get_di_by_pole(db)
+
+
+@router.get("/live/recent")
+def route_recent(
+    id_pole: Optional[int] = Query(None),
+    limit: int = Query(10, le=50),
+    db: Session = Depends(get_db)
+):
+    return get_recent_activity(db, id_pole=id_pole, limit=limit)

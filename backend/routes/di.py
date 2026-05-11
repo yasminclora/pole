@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, date
 import traceback
 
 from database          import get_db
@@ -16,9 +16,9 @@ from models.zone       import Zone
 router = APIRouter()
 
 
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # HELPERS
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def get_next_numero_di(db: Session) -> str:
     annee = datetime.now().year
@@ -101,7 +101,7 @@ def di_to_dict(di: DemandeIntervention, db: Session) -> dict:
                 "date_archive": str(ot.date_archive) if ot.date_archive else None,
             }
 
-    # Compatibilité : certains modèles Pole ont "nom", d'autres "nom_pole"
+    # CompatibilitÃ© : certains modÃ¨les Pole ont "nom", d'autres "nom_pole"
     pole_nom = None
     if pole:
         pole_nom = getattr(pole, "nom", None) or getattr(pole, "nom_pole", None)
@@ -133,9 +133,9 @@ def di_to_dict(di: DemandeIntervention, db: Session) -> dict:
     }
 
 
-# ══════════════════════════════════════════════════════════════════════
-# GET — Liste DI
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# GET â€” Liste DI
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.get("/")
 def liste_di(
@@ -156,9 +156,9 @@ def liste_di(
         raise HTTPException(status_code=500, detail="Erreur serveur interne")
 
 
-# ══════════════════════════════════════════════════════════════════════
-# GET — Détail DI
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# GET â€” DÃ©tail DI
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.get("/{id_di}")
 def get_di(id_di: int, db: Session = Depends(get_db)):
@@ -168,9 +168,9 @@ def get_di(id_di: int, db: Session = Depends(get_db)):
     return di_to_dict(di, db)
 
 
-# ══════════════════════════════════════════════════════════════════════
-# POST — Créer DI
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# POST â€” CrÃ©er DI
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.post("/")
 async def creer_di(data: dict, db: Session = Depends(get_db)):
@@ -185,7 +185,7 @@ async def creer_di(data: dict, db: Session = Depends(get_db)):
     try:
         equip = db.get(Equipement, data["id_equipement"])
         if not equip:
-            raise HTTPException(status_code=404, detail="Équipement introuvable")
+            raise HTTPException(status_code=404, detail="Ã‰quipement introuvable")
 
         di = DemandeIntervention(
             numero_di         = get_next_numero_di(db),
@@ -194,28 +194,46 @@ async def creer_di(data: dict, db: Session = Depends(get_db)):
             id_declarant      = data["id_declarant"],
             description_panne = data["description_panne"].strip(),
             statut            = "EN_ATTENTE",
-            gravite          = data.get("gravite", "NORMALE"),
+            urgence           = data.get("urgence", "NORMALE"),
         )
         db.add(di); db.commit(); db.refresh(di)
 
-        # Notifier les méthodistes du pôle
+        # Notifier les mÃ©thodistes du pÃ´le
         try:
+            import logging
+            logger = logging.getLogger("di")
             from services.notification_service import manager
             methodistes = db.query(Utilisateur).filter(
                 Utilisateur.id_pole == data["id_pole"],
                 Utilisateur.role == "METHODISTE"
             ).all()
+            logger.info(f"[DI] Notifier {len(methodistes)} mÃ©thodistes du pÃ´le {data['id_pole']}")
+            logger.info(f"[DI] Connexions actives: {list(manager.connections.keys())}")
+            logger.info(f"[DI] Manager ID: {id(manager)}")
+            
             for m in methodistes:
-                await manager.send_personal_message({
+                target_user_id = int(m.id_user)
+                logger.info(f"[DI] Envoi notif Ã  mÃ©thodiste user_id={target_user_id}, nom={m.prenom} {m.nom}")
+                logger.info(f"[DI] user_id dans connections: {target_user_id in manager.connections}")
+                
+                message = {
                     "type": "nouvelle_di",
                     "id_di": di.id_di,
                     "numero_di": di.numero_di,
                     "description": data["description_panne"][:50] + "...",
                     "equipement": equip.equipment_code,
-                    "urgence": data.get("gravite", "NORMALE"),
-                }, m.id_user)
+                    "urgence": data.get("urgence", "NORMALE"),
+                }
+                await manager.send_personal_message(user_id=target_user_id, message=message)
+                logger.info(f"[DI] Notif envoyÃ©e Ã  user_id={target_user_id}")
+                
+                # Si pas envoyÃ©, tester broadcast
+                if target_user_id not in manager.connections:
+                    logger.warning(f"[DI] user_id {target_user_id} pas connectÃ©, test broadcast")
+                    await manager.broadcast(message)
         except Exception as e:
-            print(f"[DI] Notification error: {e}")
+            import traceback
+            logger.error(f"[DI] Notification error: {e}\n{traceback.format_exc()}")
 
         return di_to_dict(di, db)
 
@@ -229,9 +247,9 @@ async def creer_di(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Erreur serveur: {type(e).__name__}: {str(e)}")
 
 
-# ══════════════════════════════════════════════════════════════════════
-# POST — Vérifier sur terrain → EN_ATTENTE → VERIFIE
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# POST â€” VÃ©rifier sur terrain â†’ EN_ATTENTE â†’ VERIFIE
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.post("/{id_di}/verifier")
 async def verifier_di(id_di: int, data: dict, db: Session = Depends(get_db)):
@@ -295,14 +313,14 @@ def debug_equip(id_equip: int, db: Session = Depends(get_db)):
     }
 
 
-# ══════════════════════════════════════════════════════════════════════
-# POST — Valider → crée OT CORRECTIF (requiert VERIFIE)
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# POST â€” Valider â†’ crÃ©e OT CORRECTIF (requiert VERIFIE)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.post("/{id_di}/valider")
 async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
     try:
-        from datetime import date as date_type
+        from datetime import datetime as datetime_type
 
         di = db.get(DemandeIntervention, id_di)
         if not di:
@@ -319,13 +337,18 @@ async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
                 detail=f"DI deja traitee (statut : {di.statut})"
             )
 
-        # Date prévue
+        # Date prévue (avec heure optionnelle)
         date_prevue = None
         if data.get("date_prevue"):
             try:
-                date_prevue = date_type.fromisoformat(data["date_prevue"])
+                # Essayer avec datetime (avec heure)
+                date_prevue = datetime.fromisoformat(data["date_prevue"])
             except ValueError:
-                raise HTTPException(status_code=400, detail="Format date invalide. Attendu : YYYY-MM-DD")
+                try:
+                    # Sinon juste date
+                    date_prevue = date.fromisoformat(data["date_prevue"])
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Format date invalide. Attendu : YYYY-MM-DD ou YYYY-MM-DDTHH:MM")
 
         # Classe
         classe_map = {
@@ -365,7 +388,7 @@ async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
         )
         db.add(ot); db.flush()
 
-        # Vérification du stock
+        # VÃ©rification du stock
         stock_info = {"has_stock": False, "piece": None}
         composante = db.query(ComposanteStock).filter(
             ComposanteStock.id_equipement == di.id_equipement
@@ -391,6 +414,20 @@ async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
         di.date_traitement = datetime.now()
 
         db.commit(); db.refresh(di)
+
+        try:
+            from services.notification_service import manager
+            await manager.send_personal_message(
+                user_id=int(di.id_declarant),
+                message={
+                    "type"     : "DI_VALIDEE",
+                    "numero_di": di.numero_di,
+                    "numero_ot": ot.numero_ot,
+                }
+            )
+        except Exception as e:
+            print(f"[DI] Erreur notif declarant: {e}")
+
         return {
             "di": di_to_dict(di, db),
             "ot": {"id_ot": ot.id_ot, "numero_ot": ot.numero_ot, "statut": str(ot.statut)},
@@ -405,9 +442,9 @@ async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Erreur serveur interne")
 
 
-# ══════════════════════════════════════════════════════════════════════
-# POST — Rejeter DI (EN_ATTENTE ou VERIFIE)
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# POST â€” Rejeter DI (EN_ATTENTE ou VERIFIE)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.post("/{id_di}/rejeter")
 async def rejeter_di(id_di: int, data: dict, db: Session = Depends(get_db)):
@@ -426,6 +463,19 @@ async def rejeter_di(id_di: int, data: dict, db: Session = Depends(get_db)):
         di.date_traitement = datetime.now()
 
         db.commit(); db.refresh(di)
+
+        # Notification au mecanicien qui a cree la DI
+        from services.notification_service import manager as _manager
+        notif = {
+            "type"       : "DI_REJETEE",
+            "id_di"      : di.id_di,
+            "numero_di"  : di.numero_di,
+            "message"    : f"Votre DI a ete rejetee: {di.numero_di}",
+            "motif"      : di.motif_rejet,
+        }
+        if di.id_createur:
+            await _manager.send_personal_message(user_id=di.id_createur, message=notif)
+
         return di_to_dict(di, db)
 
     except HTTPException:

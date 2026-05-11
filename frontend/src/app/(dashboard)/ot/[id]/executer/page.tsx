@@ -18,7 +18,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useSelector } from 'react-redux'
 import {
   ArrowLeft, Play, Package, CheckCircle, Loader2,
-  Search, Plus, ClipboardList, AlertCircle, Wrench,
+  Search, Plus, ClipboardList, AlertCircle, Wrench, X,
 } from 'lucide-react'
 
 import { otService }           from '@/services/otService'
@@ -28,12 +28,14 @@ import { stockService }        from '@/services/stockService'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PieceStock {
-  id_piece    : number
-  code_stock  : string
-  designation : string
-  quantite    : number
-  unite       : string
-  seuil_alerte: number
+  id_piece         : number
+  code_stock       : string
+  designation      : string
+  description      ?: string
+  quantite         : number
+  unite            : string
+  seuil_alerte     : number
+  composantes_liees?: { equipment_code: string; description: string; level: number; machine_racine_code?: string; machine_racine_desc?: string }[]
 }
 
 interface Reservation {
@@ -46,14 +48,6 @@ interface Reservation {
   statut          : 'EN_ATTENTE' | 'VALIDEE' | 'LIVREE' | 'ANNULEE'
   date_demande    : string
 }
-
-const TYPE_TRAVAIL_OPTIONS = [
-  { value: 'VERIFICATION',   label: 'Vérification' },
-  { value: 'NETTOYAGE',      label: 'Nettoyage' },
-  { value: 'REMPLACEMENT',   label: 'Remplacement de pièce' },
-  { value: 'REPARATION',     label: 'Réparation' },
-  { value: 'REGLAGE',        label: 'Réglage' },
-]
 
 const STATUT_RESA: Record<string, { label: string; color: string }> = {
   EN_ATTENTE: { label: 'En attente',  color: 'text-amber-600 bg-amber-50 border-amber-200' },
@@ -78,8 +72,9 @@ export default function ExecuterOTPage() {
   const [error,   setError]   = useState<string | null>(null)
 
   // Actions
-  const [demarrantOT,    setDemarrantOT]    = useState(false)
-  const [soumettantFB,   setSoumettantFB]   = useState(false)
+  const [showModalDemarrer, setShowModalDemarrer] = useState(false)
+  const [demarrantOT,       setDemarrantOT]       = useState(false)
+  const [soumettantFB,      setSoumettantFB]      = useState(false)
 
   // Réservations
   const [reservations,   setReservations]   = useState<Reservation[]>([])
@@ -94,9 +89,9 @@ export default function ExecuterOTPage() {
   const [msgResa,        setMsgResa]        = useState<string | null>(null)
 
   // Feedback
-  const [typeTravail,      setTypeTravail]      = useState('REPARATION')
   const [descTravail,      setDescTravail]      = useState('')
   const [observations,     setObservations]     = useState('')
+  const [pieceRemplacee,   setPieceRemplacee]   = useState(false)
 
   // ── Chargement initial ─────────────────────────────────────────────────────
   const chargerOT = useCallback(async () => {
@@ -128,9 +123,11 @@ export default function ExecuterOTPage() {
     chargerReservations()
   }, [chargerOT, chargerReservations])
 
-  // ── Recherche de pièce ─────────────────────────────────────────────────────
+  // ── Recherche de piece ─────────────────────────────────────────────────────
   useEffect(() => {
+    // Pas de recherche si moins de 2 caracteres
     if (searchPiece.length < 2) { setResultsPiece([]); return }
+    
     const t = setTimeout(async () => {
       try {
         setSearchingPiece(true)
@@ -147,14 +144,26 @@ export default function ExecuterOTPage() {
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
-  const demarrerOT = async () => {
+  const handleDemarrer = async () => {
     if (!user) return
+    if (!descTravail.trim()) {
+      alert('Veuillez decrire le travail realise.')
+      return
+    }
     try {
       setDemarrantOT(true)
-      await otService.demarrer(idOT, user.id_user)
+      await otService.demarrer(idOT, {
+        id_realisateur      : user.id_user,
+        type_travail        : ot.type_ot,
+        description_travail : descTravail.trim(),
+        observations        : observations.trim() || undefined,
+        composante_remplacee: pieceRemplacee && ot?.equipement?.id_equipement ? ot.equipement.id_equipement : undefined,
+      })
+      setShowModalDemarrer(false)
       await chargerOT()
-    } catch {
-      alert("Erreur lors du démarrage de l'OT.")
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || "Erreur lors du demarrage de l'OT"
+      alert(msg)
     } finally {
       setDemarrantOT(false)
     }
@@ -198,7 +207,7 @@ export default function ExecuterOTPage() {
       setSoumettantFB(true)
       await interventionService.soumettreFeedback(idOT, {
         id_realisateur     : user.id_user,
-        type_travail       : typeTravail,
+        type_travail       : ot.type_ot,
         description_travail: descTravail.trim(),
         observations       : observations.trim() || undefined,
       })
@@ -232,152 +241,264 @@ export default function ExecuterOTPage() {
   const estEnCours  = ot.statut === 'EN_COURS'
   const estTermine  = ['TERMINE', 'VALIDE_CE', 'VALIDE_HSE', 'ARCHIVE'].includes(ot.statut)
   const peutAgir    = estAssigne || estEnCours
+  
+  // Vérifier si on peut démarrer (date_prevue atteinte)
+  const now = new Date()
+  const datePrevueObj = ot?.date_prevue ? new Date(ot.date_prevue) : null
+  // Si pas de date_prevue → grisé par défaut (doit être défini)
+  // Si date_prevue passée → actif
+  // Si date_prevue future → grisé
+  const peutDemarrer = datePrevueObj ? datePrevueObj <= now : false
+  
+  // Debug log
+  console.log('[Execute] date_prevue:', ot?.date_prevue, '| parsed:', datePrevueObj, '| now:', now, '| peutDemarrer:', peutDemarrer)
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+    <div className="space-y-6 pb-6">
 
-      {/* ── En-tête ── */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => router.back()}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-            Exécution — {ot.numero_ot}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {ot.equipement_nom ?? ot.equipement_code ?? '—'}
-          </p>
+      {/* ── En-tête bleu ── */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#003B7A] via-[#004a8f] to-[#003B7A] p-8 text-white shadow-xl">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"/>
+        <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"/>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-[#003B7A]/20 rounded-full blur-3xl"/>
+        
+        <div className="relative flex items-center justify-between">
+          <div className="flex items-center gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/20">
+              <Wrench size={32} className="text-white"/>
+            </div>
+            <div>
+              <div className="flex items-center gap-3">
+                <button onClick={() => router.back()} className="p-1 rounded-lg hover:bg-white/10 transition">
+                  <ArrowLeft size={18} />
+                </button>
+                <h1 className="text-2xl font-bold tracking-tight">Exécution — {ot.numero_ot}</h1>
+              </div>
+              <p className="text-blue-200 text-sm mt-1">
+                {ot.equipement?.description ?? ot.equipement?.equipment_code ?? '—'}
+              </p>
+              {ot.equipement?.machine_racine_code && (
+                <p className="text-blue-300 text-xs mt-0.5">
+                  Machine racine : {ot.equipement.machine_racine_code}{ot.equipement.machine_racine_desc ? ` — ${ot.equipement.machine_racine_desc}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
+          <span className={`px-3 py-1.5 rounded-full text-xs font-semibold border border-white/20 backdrop-blur-sm ${
+            ot.statut === 'ASSIGNE'  ? 'bg-blue-500/30 text-blue-100'   :
+            ot.statut === 'EN_COURS' ? 'bg-purple-500/30 text-purple-100' :
+            ot.statut === 'TERMINE'  ? 'bg-amber-500/30 text-amber-100'  :
+            'bg-white/10 text-blue-200'
+          }`}>
+            {ot.statut?.replace('_', ' ')}
+          </span>
         </div>
-        <span className={`ml-auto px-3 py-1 rounded-full text-xs font-semibold border ${
-          ot.statut === 'ASSIGNE'  ? 'bg-blue-50   text-blue-700   border-blue-200'   :
-          ot.statut === 'EN_COURS' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-          ot.statut === 'TERMINE'  ? 'bg-amber-50  text-amber-700  border-amber-200'  :
-          'bg-gray-50 text-gray-500 border-gray-200'
-        }`}>
-          {ot.statut?.replace('_', ' ')}
-        </span>
       </div>
 
       {/* ── Infos OT ── */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5 grid grid-cols-2 gap-4 text-sm">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
         {[
-          ['Classe',      ot.classe],
-          ['Priorité',    ot.priorite],
-          ['Type',        ot.type_ot],
-          ['Date prévue', ot.date_prevue ? new Date(ot.date_prevue).toLocaleDateString('fr-FR') : '—'],
-          ['Durée estim.', ot.duree_estimee ? `${ot.duree_estimee} min` : '—'],
-          ['Description', ot.description_ot ?? '—'],
+          ['Classe',         ot.classe],
+          ['Priorité',       ot.priorite],
+          ['Type OT',        ot.type_ot],
+          ['Composante',     ot.equipement ? `${ot.equipement.equipment_code} — ${ot.equipement.description}` : '—'],
+          ['Machine Racine', ot.equipement?.machine_racine_code ? `${ot.equipement.machine_racine_code} — ${ot.equipement.machine_racine_desc}` : '—'],
+          ['Date prévue',    ot.date_prevue ? new Date(ot.date_prevue).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'],
+          ['Durée estim.',   ot.duree_estimee ? `${ot.duree_estimee} min` : '—'],
+          ['Description',    ot.description_ot ?? '—'],
         ].map(([label, val]) => (
           <div key={label as string}>
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
-            <p className="font-medium text-gray-800 dark:text-gray-200">{val ?? '—'}</p>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
+            <p className="font-medium text-gray-800">{val ?? '—'}</p>
           </div>
         ))}
       </div>
 
-      {/* ── Bouton Démarrer ── */}
+      {/* ── Bouton Démarrer (ASSIGNE) ── */}
       {estAssigne && (
-        <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-700 rounded-xl p-5 flex items-center justify-between">
-          <div>
-            <p className="font-semibold text-blue-800 dark:text-blue-300">Prêt à commencer ?</p>
-            <p className="text-sm text-blue-600 dark:text-blue-400">
-              Cliquez sur « Démarrer » pour passer l'OT en cours.
-            </p>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center shrink-0 mt-0.5">
+                <Play size={22} className="text-[#003B7A]" />
+              </div>
+              <div>
+                <p className={`font-bold text-lg ${peutDemarrer ? 'text-gray-800' : 'text-gray-500'}`}>
+                  {peutDemarrer ? 'Prêt à commencer' : 'En attente de la date prévue'}
+                </p>
+                <p className={`text-sm mt-0.5 ${peutDemarrer ? 'text-gray-500' : 'text-gray-400'}`}>
+                  {peutDemarrer 
+                    ? 'Vous pouvez démarrer l\'intervention quand vous êtes prêt'
+                    : ot.date_prevue 
+                      ? `Disponible à partir du ${datePrevueObj?.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
+                      : 'Veuillez contacter le méthodiste pour définir la date prévue.'
+                  }
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowModalDemarrer(true)}
+              disabled={!peutDemarrer}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm transition-all shadow-sm ${
+                peutDemarrer
+                  ? 'bg-[#003B7A] hover:bg-[#002a5a] text-white hover:shadow-md'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <Play size={16} />
+              Commencer
+            </button>
           </div>
-          <button
-            onClick={demarrerOT}
-            disabled={demarrantOT}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition disabled:opacity-50"
-          >
-            {demarrantOT
-              ? <Loader2 size={16} className="animate-spin" />
-              : <Play size={16} />
-            }
-            Démarrer
-          </button>
         </div>
       )}
 
-      {/* ── Section Réservation de pièces (visible si EN_COURS) ── */}
-      {estEnCours && (
-        <section className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-          <h2 className="font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-            <Package size={18} className="text-blue-500" />
-            Réserver des pièces
+      {/* ── Modal Demarrer ── */}
+      {showModalDemarrer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Play size={18} className="text-[#003B7A]" />
+                Commencer l&apos;intervention
+              </h2>
+              <button onClick={() => setShowModalDemarrer(false)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Composante concernée</label>
+              <p className="px-3 py-2 bg-gray-50 rounded-lg text-sm font-medium text-gray-800 border border-gray-200">
+                {ot.equipement?.equipment_code ?? '—'} — {ot.equipement?.description ?? ''}
+                {ot.equipement?.machine_racine_code && (
+                  <span className="text-gray-400 ml-2">| Machine: {ot.equipement.machine_racine_code}</span>
+                )}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Type de travail</label>
+              <p className="px-3 py-2 bg-blue-50 rounded-lg text-sm font-bold text-[#003B7A] border border-blue-200 uppercase tracking-wider">
+                {ot.type_ot ?? '—'}
+              </p>
+            </div>
+
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer p-3 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
+              <input
+                type="checkbox"
+                checked={pieceRemplacee}
+                onChange={e => setPieceRemplacee(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-[#003B7A] focus:ring-[#003B7A]"
+              />
+              <span className="text-gray-700 font-medium">Marquer cette composante comme remplacée</span>
+            </label>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">
+                Description du travail réalisé <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={descTravail}
+                onChange={e => setDescTravail(e.target.value)}
+                rows={4}
+                placeholder="Décrivez précisément ce qui a été fait..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Observations (optionnel)</label>
+              <textarea
+                value={observations}
+                onChange={e => setObservations(e.target.value)}
+                rows={2}
+                placeholder="Anomalies observées, recommandations..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setShowModalDemarrer(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition">
+                Annuler
+              </button>
+              <button onClick={handleDemarrer} disabled={demarrantOT || !descTravail.trim()}
+                className="flex items-center gap-2 px-5 py-2 bg-[#003B7A] hover:bg-[#002a5a] text-white rounded-lg font-bold text-sm transition disabled:opacity-50 shadow-sm">
+                {demarrantOT ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                Démarrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Réservation de pièces ── */}
+      {(estAssigne || estEnCours) && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
+          <h2 className="font-bold text-gray-800 flex items-center gap-2">
+            <Package size={18} className="text-[#003B7A]" />
+            Pièces disponibles en stock
           </h2>
 
-          {/* Recherche */}
           <div className="relative">
             <Search size={15} className="absolute left-3 top-3 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Chercher par code ou désignation…"
-              value={searchPiece}
-              onChange={e => setSearchPiece(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            <input type="text"
+              placeholder="Rechercher par code, désignation..."
+              value={searchPiece} onChange={e => setSearchPiece(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003B7A]/20 focus:border-[#003B7A] focus:bg-white transition-all"
             />
-            {searchingPiece && (
-              <Loader2 size={14} className="absolute right-3 top-3 text-gray-400 animate-spin" />
-            )}
+            {searchingPiece && <Loader2 size={14} className="absolute right-3 top-3 text-gray-400 animate-spin" />}
           </div>
 
-          {/* Résultats de recherche */}
           {resultsPiece.length > 0 && !pieceSelectee && (
-            <ul className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700 max-h-48 overflow-y-auto">
+            <ul className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-48 overflow-y-auto">
               {resultsPiece.map(p => (
-                <li
-                  key={p.id_piece}
+                <li key={p.id_piece}
                   onClick={() => { setPieceSelectee(p); setSearchPiece(p.designation) }}
-                  className="px-3 py-2.5 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 text-sm flex justify-between"
-                >
-                  <span className="font-medium">{p.designation}</span>
-                  <span className={`text-xs font-mono ${p.quantite === 0 ? 'text-red-500' : p.quantite <= p.seuil_alerte ? 'text-orange-500' : 'text-green-600'}`}>
-                    {p.code_stock} — Stock : {p.quantite}
-                  </span>
+                  className="px-3 py-2.5 cursor-pointer hover:bg-blue-50 text-sm">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="font-medium text-gray-800">{p.designation}</span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Stock: <span className="font-mono">{p.code_stock}</span>
+                        {p.composantes_liees && p.composantes_liees.length > 0 && (
+                          <span className="ml-2 text-blue-600">
+                            | {p.composantes_liees.map(c => 
+                              c.machine_racine_code 
+                                ? `${c.equipment_code} (${c.machine_racine_code})` 
+                                : c.equipment_code
+                            ).join(', ')}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-mono whitespace-nowrap ${p.quantite === 0 ? 'text-red-500' : p.quantite <= p.seuil_alerte ? 'text-orange-500' : 'text-gray-600'}`}>
+                      Qte: {p.quantite}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
 
-          {/* Formulaire de réservation */}
           {pieceSelectee && (
-            <div className="bg-blue-50 dark:bg-blue-950 rounded-lg p-4 space-y-3">
+            <div className="bg-blue-50 rounded-xl p-4 space-y-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="font-semibold text-blue-800 dark:text-blue-300">{pieceSelectee.designation}</p>
-                  <p className="text-xs text-blue-600">{pieceSelectee.code_stock} — Stock dispo : {pieceSelectee.quantite}</p>
+                  <p className="font-bold text-gray-800">{pieceSelectee.designation}</p>
+                  <p className="text-xs text-blue-600 mt-0.5">{pieceSelectee.code_stock} — Stock dispo : {pieceSelectee.quantite}</p>
                 </div>
-                <button onClick={() => { setPieceSelectee(null); setSearchPiece('') }} className="text-blue-400 hover:text-blue-600 text-lg">✕</button>
+                <button onClick={() => { setPieceSelectee(null); setSearchPiece('') }} className="text-blue-400 hover:text-blue-600">✕</button>
               </div>
               <div className="flex items-center gap-4">
-                <label className="text-sm text-blue-700 dark:text-blue-400 font-medium whitespace-nowrap">
-                  Quantité :
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={pieceSelectee.quantite}
-                  value={qteResa}
-                  onChange={e => setQteResa(Number(e.target.value))}
-                  className="w-20 px-2 py-1 border border-blue-300 rounded text-sm text-center"
-                />
+                <label className="text-sm text-gray-700 font-medium whitespace-nowrap">Quantité :</label>
+                <input type="number" min={1} max={pieceSelectee.quantite} value={qteResa} onChange={e => setQteResa(Number(e.target.value))}
+                  className="w-20 px-2 py-1 border border-blue-300 rounded-lg text-sm text-center bg-white" />
               </div>
-              <textarea
-                placeholder="Notes (optionnel)…"
-                value={notesResa}
-                onChange={e => setNotesResa(e.target.value)}
-                rows={2}
-                className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm resize-none"
-              />
-              <button
-                onClick={reserverPiece}
-                disabled={reservant || pieceSelectee.quantite === 0}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
-              >
+              <textarea placeholder="Notes (optionnel)..." value={notesResa} onChange={e => setNotesResa(e.target.value)} rows={2}
+                className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm resize-none bg-white" />
+              <button onClick={reserverPiece} disabled={reservant || pieceSelectee.quantite === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-[#003B7A] hover:bg-[#002a5a] text-white rounded-xl text-sm font-bold transition disabled:opacity-50 shadow-sm">
                 {reservant ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 {pieceSelectee.quantite === 0 ? 'Rupture de stock' : 'Envoyer la réservation'}
               </button>
@@ -385,23 +506,20 @@ export default function ExecuterOTPage() {
           )}
 
           {msgResa && (
-            <p className={`text-sm font-medium ${msgResa.startsWith('✓') ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`text-sm font-medium ${msgResa.startsWith('✓') ? 'text-blue-600' : 'text-red-600'}`}>
               {msgResa}
             </p>
           )}
 
-          {/* Liste des réservations */}
           {reservations.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Mes réservations pour cet OT
-              </p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Mes réservations</p>
               <ul className="space-y-2">
                 {reservations.map(r => {
                   const s = STATUT_RESA[r.statut] ?? { label: r.statut, color: 'text-gray-500 bg-gray-50 border-gray-200' }
                   return (
-                    <li key={r.id_reservation} className="flex items-center justify-between text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
-                      <span className="font-medium">{r.designation}</span>
+                    <li key={r.id_reservation} className="flex items-center justify-between text-sm border border-gray-200 rounded-xl px-4 py-2.5">
+                      <span className="font-medium text-gray-800">{r.designation}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-500">×{r.quantite_demandee}</span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${s.color}`}>{s.label}</span>
@@ -412,98 +530,73 @@ export default function ExecuterOTPage() {
               </ul>
             </div>
           )}
-        </section>
+        </div>
       )}
 
-      {/* ── Section Feedback (visible si EN_COURS) ── */}
+      {/* ── Compte rendu (EN_COURS) ── */}
       {estEnCours && (
-        <section className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-          <h2 className="font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-            <ClipboardList size={18} className="text-green-500" />
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
+          <h2 className="font-bold text-gray-800 flex items-center gap-2">
+            <ClipboardList size={18} className="text-[#003B7A]" />
             Compte rendu d&apos;intervention
           </h2>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Type de travail <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={typeTravail}
-              onChange={e => setTypeTravail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            >
-              {TYPE_TRAVAIL_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Type de travail</label>
+            <p className="px-3 py-2 bg-blue-50 rounded-lg text-sm font-bold text-[#003B7A] border border-blue-200 uppercase tracking-wider">
+              {ot.type_ot ?? '—'}
+            </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-600 mb-1">
               Description du travail réalisé <span className="text-red-500">*</span>
             </label>
-            <textarea
-              value={descTravail}
-              onChange={e => setDescTravail(e.target.value)}
-              rows={4}
-              placeholder="Décrivez précisément ce qui a été fait…"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
+            <textarea value={descTravail} onChange={e => setDescTravail(e.target.value)} rows={4}
+              placeholder="Décrivez précisément ce qui a été fait..."
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003B7A]/20 focus:border-[#003B7A] focus:bg-white transition-all resize-none" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Observations (optionnel)
-            </label>
-            <textarea
-              value={observations}
-              onChange={e => setObservations(e.target.value)}
-              rows={2}
-              placeholder="Anomalies observées, recommandations…"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
+            <label className="block text-sm font-medium text-gray-600 mb-1">Observations (optionnel)</label>
+            <textarea value={observations} onChange={e => setObservations(e.target.value)} rows={2}
+              placeholder="Anomalies observées, recommandations..."
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003B7A]/20 focus:border-[#003B7A] focus:bg-white transition-all resize-none" />
           </div>
 
-          {/* Bouton Terminer */}
-          <button
-            onClick={terminerOT}
-            disabled={soumettantFB || !descTravail.trim()}
-            className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm transition disabled:opacity-50"
-          >
-            {soumettantFB
-              ? <Loader2 size={16} className="animate-spin" />
-              : <CheckCircle size={16} />
-            }
-            Terminer l&apos;OT et soumettre au chef d&apos;équipe
+          <button onClick={terminerOT} disabled={soumettantFB || !descTravail.trim()}
+            className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[#003B7A] hover:bg-[#002a5a] text-white rounded-xl font-bold text-sm transition disabled:opacity-50 shadow-sm">
+            {soumettantFB ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+            Terminer et soumettre pour validation
           </button>
-        </section>
+        </div>
       )}
 
-      {/* ── État final (OT terminé ou archivé) ── */}
+      {/* ── État final ── */}
       {estTermine && (
-        <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-700 rounded-xl p-5 text-center space-y-2">
-          <CheckCircle className="mx-auto text-green-500" size={36} />
-          <p className="font-semibold text-green-800 dark:text-green-300">
-            OT soumis — en attente de validation du chef d&apos;équipe.
-          </p>
-          <p className="text-sm text-green-600">Statut actuel : <strong>{ot.statut?.replace('_', ' ')}</strong></p>
-          <button
-            onClick={() => router.push('/dashboard/ot/mes-ot')}
-            className="mt-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition"
-          >
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-8 text-center space-y-3 shadow-sm">
+          <div className="w-16 h-16 rounded-2xl bg-[#003B7A]/10 flex items-center justify-center mx-auto">
+            <CheckCircle size={32} className="text-[#003B7A]" />
+          </div>
+          <p className="font-bold text-lg text-gray-800">OT soumis</p>
+          <p className="text-sm text-gray-500">En attente de validation du chef d&apos;équipe.</p>
+          <p className="text-xs text-gray-400">Statut actuel : <strong className="text-[#003B7A]">{ot.statut?.replace('_', ' ')}</strong></p>
+          <button onClick={() => router.push('/ot/mes-ot')}
+            className="inline-flex items-center gap-2 px-6 py-2.5 bg-[#003B7A] hover:bg-[#002a5a] text-white rounded-xl font-bold text-sm transition shadow-sm mt-2">
             Retour à mes OT
           </button>
         </div>
       )}
 
-      {/* OT non actionnable */}
+      {/* ── Non actionnable ── */}
       {!peutAgir && !estTermine && (
-        <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 text-center">
-          <Wrench className="mx-auto text-gray-400 mb-2" size={32} />
-          <p className="text-gray-500 text-sm">
-            Cet OT n&apos;est pas dans un état qui permet une action ({ot.statut}).
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-sm">
+          <Wrench className="mx-auto text-gray-300 mb-3" size={40} />
+          <p className="text-gray-500 text-sm font-medium">
+            Cet OT n&apos;est pas dans un état qui permet une action
           </p>
-          <button onClick={() => router.back()} className="mt-3 text-blue-600 underline text-sm">
+          <p className="text-xs text-gray-400 mt-1">Statut : {ot.statut}</p>
+          <button onClick={() => router.back()} className="mt-4 text-[#003B7A] font-semibold text-sm hover:underline">
             Retour
           </button>
         </div>

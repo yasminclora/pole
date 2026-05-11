@@ -1,61 +1,42 @@
 from sqlalchemy import (
-    Column, Integer, String, DateTime,
-    ForeignKey, Text, Float, Date,
-    Enum as SAEnum
+    Column, Integer, String, Float, Date, Enum as SAEnum, DateTime
 )
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
-import enum
-
-
-class SourceHistorique(str, enum.Enum):
-    SYSTEME = "SYSTEME"   # créé par le système lors de l'archivage
-    IMPORT  = "IMPORT"    # importé manuellement
+from models.historique_interventions import TypeTravailHistorique
 
 
 class InterventionArchivee(Base):
     """
-    Archive des interventions opérationnelles validées par le méthodiste.
+    Archive miroir de historique_interventions (pour ML/dashboard).
     Table : interventions_archivees
-    
-    DIFFÉRENT de historique_interventions (données CSV/SAP pour le ML).
-    Cette table archive les interventions saisies dans le système.
+    MEMES COLONNES que historique_interventions.
     """
     __tablename__ = "interventions_archivees"
 
-    id_historique          = Column(Integer, primary_key=True, index=True)
+    id                     = Column(Integer, primary_key=True, index=True)
 
-    # Équipement (FK vers la table equipements)
-    id_equipement          = Column(Integer, ForeignKey("equipements.id_equipement"), nullable=False)
-    code_equipement        = Column(String(100), nullable=False)
-    description_equipement = Column(String(500), nullable=True)
+    system_equipment       = Column(String(100), nullable=False, index=True)
+    equipment_description  = Column(String(255), nullable=False)
 
-    # Pôle
-    id_pole                = Column(Integer, ForeignKey("poles.id_pole"), nullable=True)
+    equipment_code         = Column(String(100), nullable=True, index=True)
+    equipment_level        = Column(Integer, nullable=True)
 
-    # Type et détails
-    type_travail           = Column(String(50), nullable=False)
-    date_panne             = Column(Date,     nullable=False)
-    date_debut             = Column(DateTime, nullable=True)
-    date_fin               = Column(DateTime, nullable=True)
-    duree_reelle           = Column(Integer,  nullable=True)  # en minutes
-    observations           = Column(Text,     nullable=True)
-    composante_remplacee   = Column(Integer, ForeignKey("equipements.id_equipement"), nullable=True)
+    parent_code            = Column(String(100), nullable=True)
+    parent_level           = Column(Float, nullable=True)
 
-    # Colonnes enrichies (pour le ML)
-    job_class              = Column(String(20), nullable=True)
-    cout_total             = Column(Float,      nullable=True)
-    action_entity          = Column(String(50), nullable=True)
-    equipment_level        = Column(Integer,    nullable=True)
-    label_quality          = Column(String(30), nullable=True)
+    type_travail           = Column(
+        SAEnum(TypeTravailHistorique), nullable=False, index=True
+    )
 
-    # Métadonnées
-    source                 = Column(SAEnum(SourceHistorique), default=SourceHistorique.SYSTEME)
-    id_ot                  = Column(Integer, ForeignKey("ordres_travail.id_ot"), nullable=True)
+    action_entity = Column(String(100), nullable=True)
+
+    date_declaration       = Column(Date, nullable=False)
+    date_fin               = Column(Date, nullable=True)
+    date_creation          = Column(Date, nullable=False)
+
+    cout_total             = Column(Float, nullable=False, default=0.0)
+
+    source                 = Column(String(50), nullable=False)
+
     created_at             = Column(DateTime, server_default=func.now())
-
-    # Relations
-    equipement   = relationship("Equipement", foreign_keys=[id_equipement])
-    pole         = relationship("Pole")
-    ot           = relationship("OrdreTravail", foreign_keys=[id_ot])

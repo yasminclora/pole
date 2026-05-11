@@ -21,7 +21,7 @@ export const diService = {
     id_pole          : number
     id_declarant     : number
     description_panne: string
-    gravite         ?: string
+    urgence         ?: string
   }) => {
     const res = await api.post('/di/', data)
     return res.data

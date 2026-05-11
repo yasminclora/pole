@@ -78,7 +78,7 @@ class OrdreTravail(Base):
     observations    = Column(Text, nullable=True)  # notes du méthodiste
 
     # Dates planifiées
-    date_prevue     = Column(Date,    nullable=True)  # date prévue début
+    date_prevue     = Column(DateTime,    nullable=True)  # date ET heure prévue début
     duree_estimee   = Column(Integer, nullable=True)  # en minutes
 
     # Dates réelles (remplies par le mécanicien)

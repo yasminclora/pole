@@ -1,567 +1,422 @@
-"use client";
-
-import { useState, useEffect, useCallback } from "react";
-import { useSelector } from "react-redux";
-import { RootState } from "@/store/store";
+'use client'
+import { useEffect, useState } from 'react'
+import { useSelector } from 'react-redux'
+import { RootState } from '@/store/store'
+import api from '@/services/axiosInstance'
+import { polesService } from '@/services/polesService'
 import {
-  AreaChart, Area, BarChart, Bar, ComposedChart, Line,
-  PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
+  Wrench, Activity, CheckCircle2,
+  Clock, MapPin, FileText, RefreshCw,
+  ClipboardList, AlertTriangle, ClipboardCheck,
+} from 'lucide-react'
 
-// ─── TYPES ────────────────────────────────────────────────────────────
-interface KpiData {
-  total_interventions: number;
-  correctif: number;
-  preventif: number;
-  ratio_corr_pct: number;
-  ratio_prev_pct: number;
-  cout_total_da: number;
-  cout_moyen_da: number;
+interface Pole { id_pole: number; nom_pole: string }
+
+const STATUT_OT: Record<string, string> = {
+  CREE: 'Créé', ASSIGNE: 'Assigné', EN_COURS: 'En cours',
+  TERMINE: 'Terminé', VALIDE_CE: 'Validé CE', VALIDE_HSE: 'Validé HSE',
+  ARCHIVE: 'Archivé', REJETE: 'Rejeté',
+}
+const STATUT_DI: Record<string, string> = {
+  EN_ATTENTE: 'En attente', VERIFIE: 'Vérifié', VALIDEE: 'Validée',
+  REJETEE: 'Rejetée', EN_COURS: 'En cours',
+}
+const STATUT_INTERV: Record<string, string> = {
+  EN_ATTENTE: 'En attente', VALIDE: 'Validé',
+  REJETE: 'Rejeté', VALIDE_HSE: 'Validé HSE', ARCHIVE: 'Archivé',
 }
 
-interface MonthlyData {
-  periode: string;
-  prev: number;
-  corr: number;
-}
+const COLORS = [
+  '#6366f1','#3b82f6','#8b5cf6','#f59e0b',
+  '#10b981','#14b8a6','#ef4444','#ec4899',
+]
 
-interface CostData {
-  periode: string;
-  prev: number;
-  corr: number;
-}
-
-interface EquipmentData {
-  system_equipment: string;
-  equipment_code?: string;
-  nb_pannes: number;
-  mtbf_jours: number | null;
-  description?: string;
-  job_class?: string;
-  cout_total?: number;
-}
-
-interface ZoneData {
-  zone: string;
-  nb_pannes: number;
-  mtbf_moyen_jours: number;
-  cout_total: number;
-  criticite: string;
-}
-
-interface InterventionData {
-  equipment_code?: string;
-  system_equipment?: string;
-  description?: string;
-  type_travail: string;
-  job_class?: string;
-  date_declaration?: string;
-  duree_jours?: number;
-  cout_total?: number;
-}
-
-interface PoleData {
-  pole: string;
-  prev: number;
-  corr: number;
-}
-
-// Machine mère (parent) levels
-interface MachineMere {
-  niveau_1?: string;
-  niveau_2?: string;
-  code_niveau_1?: string;
-  code_niveau_2?: string;
-}
-
-interface ComposanteCritique extends EquipmentData, MachineMere {}
-
-// ─── CONFIG ───────────────────────────────────────────────────────────
-const API_BASE = "http://localhost:8000/dashboard";
-
-async function apiFetch(endpoint: string, params: Record<string, any> = {}): Promise<any> {
-  const url = new URL(API_BASE + endpoint, window.location.origin);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v != null && v !== "") url.searchParams.set(k, String(v));
-  });
+async function apiGet<T>(url: string, params?: Record<string, any>): Promise<T | null> {
   try {
-    const r = await fetch(url.toString());
-    return await r.json();
-  } catch {
-    return null;
-  }
+    const r = await api.get(url, { params })
+    return r.data as T
+  } catch { return null }
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────
-const fmt = (n: number | null | undefined): string => {
-  if (n == null) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + " M";
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + " K";
-  return Math.round(n).toLocaleString("fr");
-};
-
-const fmtDA = (n: number | null | undefined): string => {
-  if (!n) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + " M DA";
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + " K DA";
-  return Math.round(n).toLocaleString("fr") + " DA";
-};
-
-const fmtMTBF = (val: number | null | undefined): string =>
-  val == null || val <= 0 || !isFinite(val) ? "N/A" : `${Math.round(val)} j`;
-
-const mtbfColor = (val: number | null | undefined): string =>
-  !val || val <= 0 ? "#9CA3AF"
-  : val < 20 ? "#EF4444"
-  : val < 40 ? "#F59E0B"
-  : "#10B981";
-
-// ─── COMPOSANTS DE BASE ──────────────────────────────────────────────
-function Spinner() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 0", gap: 8, color: "#6B7280", fontSize: 13 }}>
-      <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid #E5E7EB", borderTopColor: "#F97316", animation: "dash-spin .7s linear infinite" }} />
-      Chargement…
-      <style>{`@keyframes dash-spin{to{transform:rotate(360deg)}}`}</style>
+// ── Donut SVG ──
+function Donut({ data, valueKey, colors, size = 150 }:
+  { data: any[]; valueKey: string; colors: string[]; size?: number }) {
+  const r = size * 0.38; const cx = size / 2; const cy = size / 2
+  const circ = 2 * Math.PI * r
+  const total = data.reduce((a, b) => a + (b[valueKey] || 0), 0)
+  if (total === 0) return (
+    <div className="flex items-center justify-center text-gray-400 text-sm" style={{ height: size }}>
+      Aucune donnée
     </div>
-  );
+  )
+  let offset = 0
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e5e7eb" strokeWidth="18"/>
+      {data.map((d, i) => {
+        const dash = (d[valueKey] || 0) / total * circ
+        const seg = (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+            stroke={colors[i % colors.length]} strokeWidth="18"
+            strokeDasharray={`${dash} ${circ}`}
+            strokeDashoffset={-offset}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${cx} ${cy})`}/>
+        )
+        offset += dash
+        return seg
+      })}
+      <text x={cx} y={cy - 6} textAnchor="middle"
+        style={{ fontSize: size * 0.14, fontWeight: 700, fill: 'currentColor' }}
+        className="fill-gray-900">{total}</text>
+      <text x={cx} y={cy + 12} textAnchor="middle"
+        style={{ fontSize: size * 0.065, fill: '#9ca3af' }}>total</text>
+    </svg>
+  )
 }
 
-function KpiCard({ label, value, sub, color = "#F97316" }: { label: string; value: string; sub?: string; color?: string }) {
+// ── Status Bar Chart ──
+function StatusBars({ data, labelMap, colors, max }: {
+  data: any[]; labelMap: Record<string, string>; colors: string[]; max: number }) {
   return (
-    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderTop: `3px solid ${color}`, borderRadius: 10, padding: "14px 16px" }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: "#111827" }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 3 }}>{sub}</div>}
-    </div>
-  );
-}
-
-function Card({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 10, padding: "16px 18px" }}>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{title}</div>
-        {sub && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>{sub}</div>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Tag({ type, children }: { type: string; children: React.ReactNode }) {
-  const styles: Record<string, { background: string; color: string }> = {
-    CORR:   { background: "#FEE2E2", color: "#991B1B" },
-    PREV:   { background: "#D1FAE5", color: "#065F46" },
-    PREVEN: { background: "#D1FAE5", color: "#065F46" },
-    MECA:   { background: "#DBEAFE", color: "#1E40AF" },
-    ELEC:   { background: "#EDE9FE", color: "#5B21B6" },
-  };
-  const s = styles[type] || { background: "#F3F4F6", color: "#374151" };
-  return (
-    <span style={{ ...s, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4 }}>{children}</span>
-  );
-}
-
-function Tip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-      <div style={{ color: "#6B7280", marginBottom: 4 }}>{label || payload[0]?.name}</div>
-      {payload.map((p, i) => (
-        <div key={i} style={{ fontWeight: 600, color: p.color }}>
-          {p.name}: {typeof p.value === "number" ? p.value.toLocaleString("fr") : p.value}
+    <div className="space-y-2.5">
+      {data.map((s, i) => (
+        <div key={s.statut}>
+          <div className="flex justify-between text-sm mb-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div className="w-2.5 h-2.5 rounded shrink-0"
+                style={{ background: colors[i % colors.length] }}/>
+              <span className="text-gray-600 truncate">{labelMap[s.statut] || s.statut}</span>
+            </div>
+            <span className="font-semibold text-gray-900 shrink-0 ml-2">
+              {s.count}
+              <span className="text-gray-400 font-normal ml-1 text-xs">
+                ({data.reduce((a, b) => a + b.count, 0) > 0
+                  ? Math.round(s.count / data.reduce((a, b) => a + b.count, 0) * 100)
+                  : 0}%)
+              </span>
+            </span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-2">
+            <div className="h-2 rounded-full transition-all duration-700"
+              style={{ width: `${(s.count / max) * 100}%`,
+                background: colors[i % colors.length] }}/>
+          </div>
         </div>
       ))}
     </div>
-  );
+  )
 }
 
-// ─── VUE : Vue d'ensemble ────────────────────────────────────────────
-function ViewOverview({ pole }: { pole: string | null }) {
-  const [kpis, setKpis] = useState<KpiData | null>(null);
-  const [monthly, setMonthly] = useState<MonthlyData[]>([]);
-  const [costs, setCosts] = useState<CostData[]>([]);
-  const [annee, setAnnee] = useState<number | null>(null);
+export default function DashboardPage() {
+  const authUser = useSelector((s: RootState) => s.auth.user)
+  const isAdmin  = authUser?.role === 'ADMIN'
+  const userPoleId = authUser?.id_pole as number | undefined
 
-  const load = useCallback(async () => {
-    const p: Record<string, any> = { annee, ...(pole ? { pole } : {}) };
-    const [k, m, c] = await Promise.all([
-      apiFetch("/kpis", p),
-      apiFetch("/interventions-par-mois", p),
-      apiFetch("/cout-par-mois", p),
-    ]);
-    setKpis(k);
-    setMonthly(m || []);
-    setCosts(c || []);
-  }, [annee, pole]);
+  const [poles, setPoles] = useState<Pole[]>([])
+  const [filtrePole, setFiltrePole] = useState<number | ''>('')
+  const [activeTab, setActiveTab] = useState('overview')
+  const [loading, setLoading] = useState(true)
 
-  useEffect(() => { load(); }, [load]);
+  const [kpi, setKpi] = useState<any>(null)
+  const [otStatus, setOtStatus] = useState<any[]>([])
+  const [diStatus, setDiStatus] = useState<any[]>([])
+  const [intervStatus, setIntervStatus] = useState<any[]>([])
+  const [otZone, setOtZone] = useState<any[]>([])
+  const [otPole, setOtPole] = useState<any[]>([])
+  const [recent, setRecent] = useState<any[]>([])
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Filtre année */}
-      <div style={{ display: "flex", gap: 6 }}>
-        {[["Tout", null], ["2023", 2023], ["2024", 2024], ["2025", 2025], ["2026", 2026]].map(([label, val]) => (
-          <button key={label} onClick={() => setAnnee(val as number | null)} style={{
-            padding: "4px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer",
-            background: annee === val ? "#FFF7ED" : "#fff",
-            color: annee === val ? "#F97316" : "#6B7280",
-            border: `1px solid ${annee === val ? "#F97316" : "#E5E7EB"}`,
-            fontWeight: annee === val ? 600 : 400,
-          }}>{label}</button>
-        ))}
-      </div>
-
-      {!kpis ? <Spinner /> : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-          <KpiCard label="Total interventions" value={fmt(kpis.total_interventions)} sub="Toutes années" color="#F97316" />
-          <KpiCard label="Correctif (CORR)" value={fmt(kpis.correctif)} sub={`${kpis.ratio_corr_pct ?? 0}% du total`} color="#EF4444" />
-          <KpiCard label="Préventif (PREV)" value={fmt(kpis.preventif)} sub={`${kpis.ratio_prev_pct ?? 0}% du total`} color="#10B981" />
-          <KpiCard label="Coût total" value={fmtDA(kpis.cout_total_da)} sub={`Moy. ${fmtDA(kpis.cout_moyen_da)}/int.`} color="#F59E0B" />
-        </div>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Card title="Interventions par mois" sub="PREV vs CORR">
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={monthly} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-              <XAxis dataKey="periode" tick={{ fontSize: 9, fill: "#9CA3AF" }} interval={Math.floor(monthly.length / 6) || 0} />
-              <YAxis tick={{ fontSize: 9, fill: "#9CA3AF" }} width={36} />
-              <Tooltip content={<Tip />} />
-              <Area type="monotone" dataKey="prev" stackId="1" stroke="#10B981" fill="#10B98118" name="Préventif" />
-              <Area type="monotone" dataKey="corr" stackId="1" stroke="#EF4444" fill="#EF444418" name="Correctif" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card title="Coût mensuel" sub="PREV + CORR en DA">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={costs} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-              <XAxis dataKey="periode" tick={{ fontSize: 9, fill: "#9CA3AF" }} interval={Math.floor(costs.length / 6) || 0} />
-              <YAxis tick={{ fontSize: 9, fill: "#9CA3AF" }} width={44} />
-              <Tooltip content={<Tip />} />
-              <Bar dataKey="corr" fill="#EF444488" name="Correctif" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="prev" fill="#10B98188" name="Préventif" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-// ─── VUE : Équipements & Composantes Critiques ──────────────────────
-function ViewEquipements({ pole }: { pole: string | null }) {
-  const [top, setTop] = useState<EquipmentData[]>([]);
-  const [mtbf, setMtbf] = useState<EquipmentData[]>([]);
-  const [compo, setCompo] = useState<ComposanteCritique[]>([]);
+  const activePole = isAdmin ? (filtrePole || undefined) : userPoleId
+  const params = activePole ? { id_pole: activePole } : {}
 
   useEffect(() => {
-    const p = pole ? { pole } : {};
-    Promise.all([
-      apiFetch("/top-equipements", { limit: 8, type_travail: "CORR", ...p }),
-      apiFetch("/mtbf-equipements", { limit: 8, ...p }),
-      apiFetch("/composantes-critiques", { limit: 10, ...p }),
-    ]).then(([t, m, c]) => {
-      setTop(t || []);
-      setMtbf((m || []).map((x: any) => ({ ...x, mtbf_jours: x.mtbf_jours > 0 ? x.mtbf_jours : null })));
-      setCompo(c || []);
-    });
-  }, [pole]);
+    if (isAdmin) polesService.lister().then(setPoles)
+  }, [])
 
-  const validMtbf = mtbf.filter(x => x.mtbf_jours != null && x.mtbf_jours > 0);
-  const mtbfMoy = validMtbf.length
-    ? Math.round(validMtbf.reduce((a, b) => a + (b.mtbf_jours || 0), 0) / validMtbf.length)
-    : null;
+  const charger = async () => {
+    setLoading(true)
+    const [k, ots, dis, ivs, oz, op, rec] = await Promise.all([
+      apiGet<any>('/dashboard/live/kpi', params),
+      apiGet<any[]>('/dashboard/live/ot-by-status', params),
+      apiGet<any[]>('/dashboard/live/di-by-status', params),
+      apiGet<any[]>('/dashboard/live/intervention-by-status', params),
+      apiGet<any[]>('/dashboard/live/ot-by-zone', params),
+      apiGet<any[]>('/dashboard/live/ot-by-pole'),
+      apiGet<any[]>('/dashboard/live/recent', { ...params, limit: 12 }),
+    ])
+    setKpi(k); setOtStatus(ots || []); setDiStatus(dis || [])
+    setIntervStatus(ivs || []); setOtZone(oz || []); setOtPole(op || [])
+    setRecent(rec || [])
+    setLoading(false)
+  }
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-        <KpiCard label="MTBF moyen" value={fmtMTBF(mtbfMoy)} sub="Inter-pannes moyen" color="#F59E0B" />
-        <KpiCard label="Équip. critiques" value={String(mtbf.filter(m => m.mtbf_jours != null && m.mtbf_jours < 20).length)} sub="MTBF < 20 jours" color="#EF4444" />
-        <KpiCard label="Top défaillant" value={top[0]?.system_equipment || "—"} sub={`${top[0]?.nb_pannes || 0} pannes`} color="#F97316" />
+  useEffect(() => { charger() }, [activePole])
+
+  const maxOt = Math.max(...otStatus.map(s => s.count), 1)
+  const maxDi = Math.max(...diStatus.map(s => s.count), 1)
+  const maxIv = Math.max(...intervStatus.map(s => s.count), 1)
+  const maxZone = Math.max(...otZone.map(z => z.count), 1)
+
+  const TABS = [
+    { id: 'overview',      label: 'Vue d\'ensemble', icon: Activity },
+    { id: 'ot',            label: 'OT',               icon: ClipboardList },
+    { id: 'di',            label: 'DI',               icon: AlertTriangle },
+    { id: 'interventions', label: 'Interventions',    icon: ClipboardCheck },
+  ]
+
+  const renderOverview = () => (
+    <div className="space-y-4">
+      {/* OT + DI Donuts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">OT par statut</h3>
+          {otStatus.length === 0 ? <p className="text-gray-400 text-sm text-center py-8">Aucune donnée</p>
+          : <div className="flex items-start gap-6">
+              <Donut data={otStatus} valueKey="count" colors={COLORS} size={140}/>
+              <div className="flex-1"><StatusBars data={otStatus} labelMap={STATUT_OT} colors={COLORS} max={maxOt}/></div>
+            </div>}
+        </div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">DI par statut</h3>
+          {diStatus.length === 0 ? <p className="text-gray-400 text-sm text-center py-8">Aucune donnée</p>
+          : <div className="flex items-start gap-6">
+              <Donut data={diStatus} valueKey="count" colors={COLORS.slice(2)} size={140}/>
+              <div className="flex-1"><StatusBars data={diStatus} labelMap={STATUT_DI} colors={COLORS.slice(2)} max={maxDi}/></div>
+            </div>}
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Card title="Top 8 équipements" sub="Nb de pannes correctives">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={top} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-              <XAxis type="number" tick={{ fontSize: 9, fill: "#9CA3AF" }} />
-              <YAxis type="category" dataKey="system_equipment" tick={{ fontSize: 9, fill: "#9CA3AF" }} width={100} />
-              <Tooltip content={<Tip />} />
-              <Bar dataKey="nb_pannes" name="Pannes" fill="#F97316" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
+      {/* Interventions + Zone */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Interventions par statut validation</h3>
+          {intervStatus.length === 0 ? <p className="text-gray-400 text-sm text-center py-8">Aucune donnée</p>
+          : <div className="flex items-start gap-6">
+              <Donut data={intervStatus} valueKey="count" colors={COLORS.slice(3)} size={140}/>
+              <div className="flex-1"><StatusBars data={intervStatus} labelMap={STATUT_INTERV} colors={COLORS.slice(3)} max={maxIv}/></div>
+            </div>}
+        </div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-6">OT par zone</h3>
+          {otZone.length === 0 ? <p className="text-gray-400 text-sm text-center py-8">Aucune donnée</p>
+          : <div className="space-y-3">
+              {otZone.map((z, i) => (
+                <div key={z.zone}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <div className="flex items-center gap-2">
+                      <MapPin size={12} className="text-gray-400"/>
+                      <span className="text-gray-600">{z.zone}</span>
+                    </div>
+                    <span className="font-semibold text-gray-900">{z.count}</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2.5">
+                    <div className="h-2.5 rounded-full transition-all duration-700"
+                      style={{ width: `${(z.count / maxZone) * 100}%`, background: COLORS[i % COLORS.length] }}/>
+                  </div>
+                </div>
+              ))}
+            </div>}
+        </div>
+      </div>
 
-        <Card title="MTBF par équipement" sub="Jours inter-pannes">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={mtbf} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-              <XAxis type="number" tick={{ fontSize: 9, fill: "#9CA3AF" }} unit=" j" />
-              <YAxis type="category" dataKey="system_equipment" tick={{ fontSize: 9, fill: "#9CA3AF" }} width={100} />
-              <Tooltip content={<Tip />} formatter={(v: any) => fmtMTBF(v)} />
-              <Bar dataKey="mtbf_jours" name="MTBF" radius={[0, 4, 4, 0]}>
-                {mtbf.map((d, i) => <Cell key={i} fill={mtbfColor(d.mtbf_jours)} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: "#6B7280" }}>
-            {[["#EF4444", "< 20 j"], ["#F59E0B", "20–40 j"], ["#10B981", "> 40 j"]].map(([c, l]) => (
-              <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: "inline-block" }} />{l}
-              </span>
-            ))}
+      {/* Poles (admin) */}
+      {isAdmin && otPole.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-6">OT par pôle</h3>
+          <div className="flex items-end gap-3 h-40">
+            {otPole.map((p, i) => {
+              const maxP = Math.max(...otPole.map(x => x.count), 1)
+              return (
+                <div key={p.pole} className="flex-1 flex flex-col items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-700">{p.count}</span>
+                  <div className="w-full rounded-t-lg transition-all duration-700"
+                    style={{ height: `${Math.max((p.count / maxP) * 100, 8)}%`, minHeight: 8,
+                      background: COLORS[i % COLORS.length] }}/>
+                  <span className="text-[10px] text-gray-500 text-center leading-tight">{p.pole}</span>
+                </div>
+              )
+            })}
           </div>
-        </Card>
-      </div>
-
-      {/* Composantes critiques avec machines mères */}
-      <Card title="Composantes critiques avec machines mères" sub="Top 10 par pannes, coût et MTBF">
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid #E5E7EB" }}>
-                {["#", "Code", "Description", "Classe", "Machine Mère Niv.1", "Machine Mère Niv.2", "Pannes", "MTBF", "Coût", "Statut"].map(h => (
-                  <th key={h} style={{ textAlign: "left", padding: "8px 10px", fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {compo.map((r, i) => {
-                const mtbfVal = (r.mtbf_jours != null && r.mtbf_jours > 0) ? r.mtbf_jours : null;
-                const crit = mtbfVal != null && mtbfVal < 20 ? "CRITIQUE" : mtbfVal != null && mtbfVal < 40 ? "SURV." : "OK";
-                const critColor = crit === "CRITIQUE" ? "#EF4444" : crit === "SURV." ? "#F59E0B" : "#10B981";
-                return (
-                  <tr key={i} style={{ borderBottom: "1px solid #F9FAFB" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "#F9FAFB"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <td style={{ padding: "9px 10px", color: "#9CA3AF", fontWeight: 600 }}>{i + 1}</td>
-                    <td style={{ padding: "9px 10px", fontSize: 11, fontWeight: 600, color: "#111827" }}>{r.equipment_code || r.system_equipment || "—"}</td>
-                    <td style={{ padding: "9px 10px", color: "#374151", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description}</td>
-                    <td style={{ padding: "9px 10px" }}><Tag type={r.job_class || ""}>{r.job_class || "—"}</Tag></td>
-                    <td style={{ padding: "9px 10px", fontSize: 11, color: "#6B7280" }}>{r.niveau_1 || "—"}</td>
-                    <td style={{ padding: "9px 10px", fontSize: 11, color: "#6B7280" }}>{r.niveau_2 || "—"}</td>
-                    <td style={{ padding: "9px 10px", fontWeight: 700, color: "#EF4444" }}>{r.nb_pannes}</td>
-                    <td style={{ padding: "9px 10px", fontWeight: 600, color: mtbfColor(mtbfVal) }}>{fmtMTBF(mtbfVal)}</td>
-                    <td style={{ padding: "9px 10px", fontSize: 11 }}>{fmtDA(r.cout_total)}</td>
-                    <td style={{ padding: "9px 10px", fontSize: 10, fontWeight: 700, color: critColor }}>{crit}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
-      </Card>
-    </div>
-  );
-}
-
-// ─── VUE : Zones & Pôles ────────────────────────────────────────────
-function ViewZones({ isAdmin, pole }: { isAdmin: boolean; pole: string | null }) {
-  const [zones, setZones] = useState<ZoneData[]>([]);
-  const [poles, setPoles] = useState<PoleData[]>([]);
-
-  useEffect(() => {
-    const p = !isAdmin && pole ? { pole } : {};
-    Promise.all([
-      apiFetch("/zones-critiques", p),
-      apiFetch("/interventions-par-pole", p),
-    ]).then(([z, po]) => { setZones(z || []); setPoles(po || []); });
-  }, [isAdmin, pole]);
-
-  const maxPannes = zones.length ? Math.max(...zones.map(z => z.nb_pannes || 0), 1) : 1;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-        {zones.slice(0, isAdmin ? 9 : zones.length).map((z, i) => {
-          const isCrit = z.criticite === "CRITIQUE";
-          const pct = Math.round(((z.nb_pannes || 0) / maxPannes) * 100);
-          const barColor = isCrit ? "#EF4444" : z.criticite === "ELEVE" ? "#F59E0B" : "#10B981";
-          return (
-            <div key={i} style={{ background: isCrit ? "#FFF5F5" : "#fff", border: `1px solid ${isCrit ? "#FCA5A5" : "#E5E7EB"}`, borderRadius: 10, padding: "12px 14px" }}>
-              {isCrit && (
-                <div style={{ fontSize: 9, fontWeight: 800, color: "#EF4444", background: "#FEE2E2", padding: "2px 6px", borderRadius: 4, display: "inline-block", marginBottom: 6, letterSpacing: "0.06em" }}>CRITIQUE</div>
-              )}
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{z.zone}</div>
-              <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: z.nb_pannes > 500 ? "#EF4444" : "#111827" }}>{z.nb_pannes || 0}</div>
-                  <div style={{ fontSize: 10, color: "#9CA3AF" }}>Pannes</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: mtbfColor(z.mtbf_moyen_jours) }}>{fmtMTBF(z.mtbf_moyen_jours)}</div>
-                  <div style={{ fontSize: 10, color: "#9CA3AF" }}>MTBF</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{fmt(z.cout_total)}</div>
-                  <div style={{ fontSize: 10, color: "#9CA3AF" }}>Coût</div>
-                </div>
-              </div>
-              <div style={{ height: 3, background: "#F3F4F6", borderRadius: 99, marginTop: 10 }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 99 }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Graph pôles : uniquement admin */}
-      {isAdmin && (
-        <Card title="Interventions par pôle" sub="PREV vs CORR">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={poles.slice(0, 10)} margin={{ top: 5, right: 5, bottom: 30, left: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-              <XAxis dataKey="pole" tick={{ fontSize: 8, fill: "#9CA3AF" }} angle={-20} textAnchor="end" />
-              <YAxis tick={{ fontSize: 9, fill: "#9CA3AF" }} width={36} />
-              <Tooltip content={<Tip />} />
-              <Bar dataKey="prev" fill="#10B98188" name="Préventif" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="corr" fill="#EF444488" name="Correctif" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
       )}
-    </div>
-  );
-}
 
-// ─── VUE : Interventions ─────────────────────────────────────────────
-function ViewInterventions({ pole }: { pole: string | null }) {
-  const [journal, setJournal] = useState<InterventionData[]>([]);
-  const [trend, setTrend] = useState<any[]>([]);
-  const [typeFilter, setTypeFilter] = useState<string | null>(null);
-
-  useEffect(() => {
-    const p = pole ? { pole } : {};
-    Promise.all([
-      apiFetch("/journal", { limit: 100, ...p }),
-      apiFetch("/tendance-annuelle", p),
-    ]).then(([j, t]) => { setJournal(j || []); setTrend(t || []); });
-  }, [pole]);
-
-  const filtered = typeFilter ? journal.filter(r => r.type_travail === typeFilter) : journal;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Card title="Tendance PREV vs CORR" sub="Par trimestre 2023–2026">
-        <ResponsiveContainer width="100%" height={180}>
-          <ComposedChart data={trend} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-            <XAxis dataKey="periode" tick={{ fontSize: 9, fill: "#9CA3AF" }} />
-            <YAxis tick={{ fontSize: 9, fill: "#9CA3AF" }} width={36} />
-            <Tooltip content={<Tip />} />
-            <Bar dataKey="prev" fill="#10B98130" stroke="#10B981" name="Préventif" />
-            <Line type="monotone" dataKey="corr" stroke="#EF4444" strokeWidth={2} dot={false} name="Correctif" />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </Card>
-
-      <Card title="Journal des interventions" sub={`${filtered.length} entrées`}>
-        <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
-          {[["Tous", null], ["PREV", "PREV"], ["CORR", "CORR"]].map(([l, v]) => (
-            <button key={l} onClick={() => setTypeFilter(v as string | null)} style={{
-              padding: "3px 10px", borderRadius: 5, fontSize: 11, cursor: "pointer",
-              background: typeFilter === v ? "#FFF7ED" : "#fff",
-              color: typeFilter === v ? "#F97316" : "#6B7280",
-              border: `1px solid ${typeFilter === v ? "#F97316" : "#E5E7EB"}`,
-              fontWeight: typeFilter === v ? 600 : 400,
-            }}>{l}</button>
-          ))}
-        </div>
-        <div style={{ overflowY: "auto", maxHeight: 300 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid #E5E7EB" }}>
-                {["Code", "Description", "Type", "Classe", "Date", "Durée", "Coût"].map(h => (
-                  <th key={h} style={{ textAlign: "left", padding: "7px 10px", fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
+      {/* Recent activity */}
+      {recent.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700">Activités récentes (OT + DI)</h3>
+          </div>
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>{['Référence', 'Type', 'Détail', 'Statut', 'Date'].map(h =>
+                <th key={h} className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+              )}</tr>
             </thead>
-            <tbody>
-              {filtered.slice(0, 80).map((r, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #F9FAFB" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#F9FAFB"}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <td style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "#111827" }}>{r.equipment_code || r.system_equipment || "—"}</td>
-                  <td style={{ padding: "8px 10px", color: "#374151", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description}</td>
-                  <td style={{ padding: "8px 10px" }}><Tag type={r.type_travail}>{r.type_travail}</Tag></td>
-                  <td style={{ padding: "8px 10px" }}><Tag type={r.job_class || ""}>{r.job_class || "—"}</Tag></td>
-                  <td style={{ padding: "8px 10px", fontSize: 11, color: "#6B7280" }}>{r.date_declaration || "—"}</td>
-                  <td style={{ padding: "8px 10px", fontSize: 11, color: "#6B7280" }}>{r.duree_jours != null ? `${Math.round(r.duree_jours)} j` : "—"}</td>
-                  <td style={{ padding: "8px 10px", fontSize: 11 }}>{fmtDA(r.cout_total)}</td>
+            <tbody className="divide-y divide-gray-100">
+              {recent.map((r, i) => (
+                <tr key={i} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-5 py-3"><span className="font-mono font-semibold text-sm text-gray-900">{r.ref}</span></td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      r.type === 'OT' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}>
+                      {r.type === 'OT' ? <Wrench size={10}/> : <FileText size={10}/>}
+                      {r.type}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-600">{r.sous_type}</td>
+                  <td className="px-5 py-3 text-sm text-gray-600">{STATUT_OT[r.statut] || STATUT_DI[r.statut] || r.statut}</td>
+                  <td className="px-5 py-3 text-sm text-gray-400">
+                    {r.date ? new Date(r.date).toLocaleDateString('fr-FR') : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </Card>
+      )}
     </div>
-  );
-}
+  )
 
-// ════════════════════════════════════════════════════════════════════
-// COMPOSANT PRINCIPAL
-// ════════════════════════════════════════════════════════════════════
-const TABS = [
-  { id: "overview",      label: "Vue d'ensemble" },
-  { id: "equipment",     label: "Équipements & Composantes" },
-  { id: "zones",         label: "Zones & Pôles" },
-  { id: "interventions", label: "Interventions" },
-];
+  // ── Detail view for a status type ──
+  function StatusDetail({ data, labelMap, colors, max, typeFilter }: {
+    data: any[]; labelMap: Record<string, string>; colors: string[];
+    max: number; typeFilter?: string;
+  }) {
+    const filteredRecent = recent.filter(r => !typeFilter || r.type === typeFilter)
+    return (
+      <div className="space-y-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <div className="flex items-start gap-8">
+            <div className="text-center">
+              <Donut data={data} valueKey="count" colors={colors} size={160}/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">Répartition des statuts</h3>
+              <StatusBars data={data} labelMap={labelMap} colors={colors} max={max}/>
+            </div>
+          </div>
+        </div>
 
-export default function DashboardPage() {
-  const authUser = useSelector((s: RootState) => s.auth.user);
-  const isAdmin = authUser?.role === 'ADMIN';
-  const userPole = authUser?.nom_pole || null;
-  
-  const [activeTab, setActiveTab] = useState("overview");
+        {/* Status cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {data.map((s, i) => (
+            <div key={s.statut} className="bg-white border border-gray-200 rounded-xl p-4"
+              style={{ borderTop: `3px solid ${colors[i % colors.length]}` }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
+                {labelMap[s.statut] || s.statut}
+              </p>
+              <p className="text-2xl font-bold text-gray-900">{s.count}</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {data.reduce((a, b) => a + b.count, 0) > 0
+                  ? `${Math.round(s.count / data.reduce((a, b) => a + b.count, 0) * 100)}% du total`
+                  : '—'}
+              </p>
+            </div>
+          ))}
+        </div>
 
-  // Si non-admin → passe le nom du pôle à l'API
-  const pole = isAdmin ? null : userPole;
-
-  const renderView = () => {
-    switch (activeTab) {
-      case "overview":      return <ViewOverview      pole={pole} />;
-      case "equipment":     return <ViewEquipements   pole={pole} />;
-      case "zones":         return <ViewZones         isAdmin={isAdmin} pole={pole} />;
-      case "interventions": return <ViewInterventions pole={pole} />;
-      default:              return null;
-    }
-  };
-
-  return (
-    <div style={{ background: "#F7F8FA", minHeight: "100%", fontFamily: "inherit" }}>
-
-      {/* Barre de navigation */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #E5E7EB", padding: "0 24px", display: "flex", alignItems: "center", gap: 2 }}>
-        {TABS.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-            padding: "12px 16px", fontSize: 13, cursor: "pointer",
-            fontWeight: activeTab === tab.id ? 600 : 400,
-            color: activeTab === tab.id ? "#F97316" : "#6B7280",
-            background: "transparent", border: "none",
-            borderBottom: `2px solid ${activeTab === tab.id ? "#F97316" : "transparent"}`,
-          }}>{tab.label}</button>
-        ))}
-
-        {/* Badge pôle pour les non-admins */}
-        {!isAdmin && userPole && (
-          <div style={{ marginLeft: "auto", background: "#EFF6FF", border: "1px solid #BFDBFE", color: "#1D4ED8", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 600 }}>
-            Pôle : {userPole}
+        {/* Recent table */}
+        {filteredRecent.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700">Récent</h3>
+            </div>
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>{['Référence', 'Détail', 'Statut', 'Date'].map(h =>
+                  <th key={h} className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                )}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredRecent.map((r, i) => (
+                  <tr key={i} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-5 py-3"><span className="font-mono font-semibold text-sm text-gray-900">{r.ref}</span></td>
+                    <td className="px-5 py-3 text-sm text-gray-600">{r.sous_type}</td>
+                    <td className="px-5 py-3">
+                      <span className="text-sm font-medium"
+                        style={{ color: colors[data.findIndex(d => d.statut === r.statut) >= 0 ? data.findIndex(d => d.statut === r.statut) % colors.length : 0] }}>
+                        {labelMap[r.statut] || r.statut}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-sm text-gray-400">
+                      {r.date ? new Date(r.date).toLocaleDateString('fr-FR') : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+    )
+  }
 
-      {/* Contenu */}
-      <div style={{ padding: "20px 24px" }}>
-        {renderView()}
+  return (
+    <div className="space-y-6">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Tableau de Bord</h1>
+          <p className="text-gray-500 text-sm mt-0.5">
+            Suivi des OT, DI et interventions
+            {!isAdmin && ' — votre pôle'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <select value={filtrePole}
+              onChange={e => setFiltrePole(e.target.value ? Number(e.target.value) : '')}
+              className="px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Tous les pôles</option>
+              {poles.map(p => <option key={p.id_pole} value={p.id_pole}>{p.nom_pole}</option>)}
+            </select>
+          )}
+          <button onClick={charger} disabled={loading}
+            className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''}/>
+          </button>
+        </div>
       </div>
+
+   
+      {/* ── Tabs ── */}
+      <div className="flex gap-1 bg-white border border-gray-200 rounded-2xl p-1 shadow-sm">
+        {TABS.map(tab => {
+          const Icon = tab.icon
+          return (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                activeTab === tab.id
+                  ? 'bg-[#003B7A] text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}>
+              <Icon size={15}/>
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Content ── */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <RefreshCw size={28} className="animate-spin text-blue-500"/>
+        </div>
+      ) : (
+        <>
+          {activeTab === 'overview' && renderOverview()}
+          {activeTab === 'ot' && (
+            <StatusDetail data={otStatus} labelMap={STATUT_OT} colors={COLORS} max={maxOt} typeFilter="OT"/>
+          )}
+          {activeTab === 'di' && (
+            <StatusDetail data={diStatus} labelMap={STATUT_DI} colors={COLORS.slice(2)} max={maxDi} typeFilter="DI"/>
+          )}
+          {activeTab === 'interventions' && (
+            <StatusDetail data={intervStatus} labelMap={STATUT_INTERV} colors={COLORS.slice(3)} max={maxIv}/>
+          )}
+        </>
+      )}
     </div>
-  );
+  )
 }

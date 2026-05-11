@@ -1,9 +1,9 @@
 from dotenv import load_dotenv
-load_dotenv()   # charge .env AVANT tout import qui lit os.environ
+import os
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 import logging
 import traceback
-import os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware

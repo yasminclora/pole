@@ -1,18 +1,48 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, date, time, timedelta
 import traceback
+import io
+import csv
 
 from database          import get_db
 from models.ot         import OrdreTravail, StatutOT, TypeOT, ClasseOT, PrioriteOT
 from models.equipement import Equipement
 from models.pole       import Pole
-from models.user       import Utilisateur, RoleEnum
+from models.user       import Utilisateur, RoleEnum, ShiftEnum
 from models.zone       import Zone
 from models.di        import DemandeIntervention
 from models.intervention import Intervention
+from models.equipe     import Equipe
 
 router = APIRouter()
+
+# Cycle de quarts: 8 jours (2j Matin → 2j Après-midi → 2j Nuit → 2j Repos)
+CYCLE = ["Matin", "Matin", "Après-midi", "Après-midi", "Nuit", "Nuit", "Repos", "Repos"]
+CYCLE_LENGTH = 8
+
+
+def get_quart_from_datetime(dt: datetime) -> str:
+    """Calcule le quart en fonction de l'heure de la datetime."""
+    if not dt:
+        return "Inconnu"
+    hour = dt.hour
+    if 6 <= hour < 14:
+        return "Matin"
+    elif 14 <= hour < 22:
+        return "Après-midi"
+    else:
+        return "Nuit"
+
+
+def get_quart_equipe(equipe: Equipe, target_date: date) -> str:
+    """Calcule le quart d'une équipe à une date donnée en suivant le cycle tournant."""
+    if not equipe or not equipe.date_reference_cycle:
+        return "Inconnu"
+    
+    delta = (target_date - equipe.date_reference_cycle).days
+    position = (equipe.position_initiale_cycle + delta) % CYCLE_LENGTH
+    return CYCLE[position]
 
 
 # ── GET AVAILABLE USERS FOR ASSIGNMENT (MUST BE FIRST) ─────────────
@@ -26,47 +56,99 @@ def get_users_disponibles(
     if not id_pole or id_pole <= 0:
         return []
     
-    from datetime import date
-    
+    target_datetime = None
     target_date = date.today()
+    
     if date_prevue:
         try:
-            target_date = date.fromisoformat(date_prevue)
+            # Essayer de parser en datetime (avec heure)
+            target_datetime = datetime.fromisoformat(date_prevue)
+            target_date = target_datetime.date()
         except:
-            pass
+            try:
+                # Sinon juste en date
+                target_date = date.fromisoformat(date_prevue)
+            except:
+                pass
     
+    # Définir les rôles selon la classe
     if classe == "MECANIQUE":
-        allowed_roles = [RoleEnum.MECANICIEN, RoleEnum.CHEF_EQUIPE]
+        allowed_roles = [RoleEnum.MECANICIEN]
     elif classe == "ELECTRIQUE":
-        allowed_roles = [RoleEnum.TECHNICIEN, RoleEnum.CHEF_EQUIPE]
+        allowed_roles = [RoleEnum.TECHNICIEN]
+    elif classe == "GLOBALE":
+        allowed_roles = [RoleEnum.CHEF_EQUIPE]
     else:
-        allowed_roles = [RoleEnum.MECANICIEN, RoleEnum.TECHNICIEN, RoleEnum.CHEF_EQUIPE]
+        allowed_roles = [RoleEnum.MECANICIEN, RoleEnum.CHEF_EQUIPE]
     
+    # Récupérer les utilisateurs du pôle avec les bons rôles
     users = db.query(Utilisateur).filter(
         Utilisateur.id_pole == id_pole,
         Utilisateur.role.in_(allowed_roles),
-        Utilisateur.shift != None
+        Utilisateur.id_equipe.isnot(None)
     ).all()
     
-    from models.equipe import Equipe
+    # Charger les équipes du pôle
     equipes = {e.id_equipe: e for e in db.query(Equipe).filter_by(id_pole=id_pole).all()}
     
+    # Récupérer les OT assignés à cette date pour voir qui est occupé
     ots_du_jour = db.query(OrdreTravail).filter(
         OrdreTravail.id_pole == id_pole,
-        OrdreTravail.date_prevue == target_date,
-        OrdreTravail.statut.in_([StatutOT.ASSIGNE, StatutOT.EN_COURS])
+        OrdreTravail.date_prevue != None,
+        # Comparer seulement la date (sans l'heure)
     ).all()
+    
+    # Filtrer les OT du même jour
+    ots_du_jour = [ot for ot in ots_du_jour if ot.date_prevue and ot.date_prevue.date() == target_date]
+    
+    # Si datetime fourni, trouver quelle équipe travaille ce quart à cette date
+    equipe_travaillant_id = None
+    if target_datetime:
+        quart_actif = get_quart_from_datetime(target_datetime)
+        
+        # Gestion nuit : entre minuit et 6h, l'équipe active est celle de la veille
+        date_pour_nuit = target_date
+        if target_datetime.hour < 6:
+            date_pour_nuit = target_date - timedelta(days=1)
+        
+        for eq_id, equipe in equipes.items():
+            quart_equipe = get_quart_equipe(equipe, date_pour_nuit)
+            if quart_equipe == quart_actif:
+                equipe_travaillant_id = eq_id
+                break
     
     result = []
     for user in users:
-        user_shift = user.shift.value if user.shift else None
+        equipe = equipes.get(user.id_equipe) if user.id_equipe else None
         
-        if user_shift == "NUIT" or user_shift is None:
+        # Si on a datetime avec équipe spécifique, filtrer par cette équipe
+        if equipe_travaillant_id is not None:
+            if user.id_equipe != equipe_travaillant_id:
+                continue
+        
+        # Si on a l'heure (datetime), calculer le quart basé sur l'heure
+        if target_datetime:
+            quart = get_quart_from_datetime(target_datetime)
+        # Sinon, utiliser le cycle de l'équipe
+        else:
+            quart = get_quart_equipe(equipe, target_date) if equipe else "Inconnu"
+        
+        # Exclure ceux en repos
+        if quart == "Repos":
             continue
         
-        user_ots = [ot for ot in ots_du_jour if ot.id_assigne == user.id_user]
+        # Compter les OT en cours pour cet utilisateur (même quart)
+        user_ots = []
+        for ot in ots_du_jour:
+            if ot.id_assigne == user.id_user:
+                if target_datetime:
+                    # Si datetime défini, vérifier même heure
+                    if ot.date_prevue and ot.date_prevue.date() == target_datetime.date():
+                        user_ots.append(ot)
+                else:
+                    user_ots.append(ot)
         
-        equipe_nom = equipes.get(user.id_equipe).nom_equipe if user.id_equipe and user.id_equipe in equipes else "N/A"
+        equipe_nom = equipe.nom_equipe if equipe else "N/A"
         
         result.append({
             "id_user": user.id_user,
@@ -76,10 +158,13 @@ def get_users_disponibles(
             "role": user.role.value,
             "id_equipe": user.id_equipe,
             "nom_equipe": equipe_nom,
-            "shift": user_shift,
+            "quart": quart,
             "ot_en_cours": len(user_ots),
             "disponible": len(user_ots) == 0
         })
+    
+    # Trier par disponibilité puis par nom
+    result.sort(key=lambda x: (not x["disponible"], x["nom"]))
     
     return result
 
@@ -266,12 +351,16 @@ def ot_to_dict(ot: OrdreTravail, db: Session) -> dict:
             "nom": f"{assigne.prenom} {assigne.nom}",
             "email": assigne.email,
             "role": assigne.role,
+            "id_equipe": assigne.id_equipe,
+            "nom_equipe": db.get(Equipe, assigne.id_equipe).nom_equipe if assigne.id_equipe and db.get(Equipe, assigne.id_equipe) else None,
         } if assigne else None,
         "assigne_2": {
             "id": assigne_2.id_user,
             "nom": f"{assigne_2.prenom} {assigne_2.nom}",
             "email": assigne_2.email,
             "role": assigne_2.role,
+            "id_equipe": assigne_2.id_equipe,
+            "nom_equipe": db.get(Equipe, assigne_2.id_equipe).nom_equipe if assigne_2.id_equipe and db.get(Equipe, assigne_2.id_equipe) else None,
         } if assigne_2 else None,
         "date_prevue": str(ot.date_prevue) if ot.date_prevue else None,
         "duree_estimee": ot.duree_estimee,
@@ -279,6 +368,9 @@ def ot_to_dict(ot: OrdreTravail, db: Session) -> dict:
         "date_fin_reelle": str(ot.date_fin_reelle) if ot.date_fin_reelle else None,
         "duree_reelle": duree_reelle,
         "date_assignation": str(ot.date_assignation) if ot.date_assignation else None,
+        "date_validation_ce": str(ot.date_validation_ce) if ot.date_validation_ce else None,
+        "date_validation_hse": str(ot.date_validation_hse) if ot.date_validation_hse else None,
+        "date_archive": str(ot.date_archive) if ot.date_archive else None,
         "motif_rejet": ot.motif_rejet,
         "id_di": ot.id_di,
         "di": di_dict,
@@ -296,6 +388,9 @@ def liste_ot(
     statut    : str = None,
     type_ot   : str = None,
     id_assigne: int = None,
+    id_zone   : int = None,
+    date_debut: str = None,
+    date_fin  : str = None,
     db        : Session = Depends(get_db)
 ):
     try:
@@ -304,6 +399,13 @@ def liste_ot(
         if statut:     q = q.filter(OrdreTravail.statut     == statut)
         if type_ot:    q = q.filter(OrdreTravail.type_ot    == type_ot)
         if id_assigne: q = q.filter(OrdreTravail.id_assigne == id_assigne)
+        if id_zone:
+            q = q.join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement
+                      ).filter(Equipement.id_zone == id_zone)
+        if date_debut:
+            q = q.filter(OrdreTravail.date_archive >= datetime.fromisoformat(date_debut))
+        if date_fin:
+            q = q.filter(OrdreTravail.date_archive <= datetime.fromisoformat(date_fin))
 
         ots = q.order_by(OrdreTravail.created_at.desc()).all()
         return [ot_to_dict(o, db) for o in ots]
@@ -408,6 +510,20 @@ async def assigner_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
             if assigne_2:
                 ot.id_assigne_2 = data["id_assigne_2"]
 
+        # Date prévue et durée (optionnel - peut être modifié lors de l'assignation)
+        if data.get("date_prevue"):
+            try:
+                ot.date_prevue = datetime.fromisoformat(data["date_prevue"])
+            except:
+                try:
+                    from datetime import date
+                    ot.date_prevue = date.fromisoformat(data["date_prevue"])
+                except:
+                    pass
+        
+        if data.get("duree_estimee"):
+            ot.duree_estimee = int(data["duree_estimee"])
+
         ot.statut           = StatutOT.ASSIGNE
         ot.date_assignation = datetime.now()
 
@@ -416,18 +532,20 @@ async def assigner_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
 
         # ── Notifications ────────────────────────────────────────────
         from services.notification_service import manager as _manager
+        print(f"[OT] Envoi notification OT_ASSIGNE pour OT {ot.numero_ot} vers user_id={ot.id_assigne}")
         notif = {
             "type"       : "OT_ASSIGNE",
             "id_ot"      : ot.id_ot,
             "numero_ot"  : ot.numero_ot,
-            "message"    : f"Un OT vous a été assigné : {ot.numero_ot}",
+            "message"    : f"Un OT vous a ete assigne : {ot.numero_ot}",
             "priorite"   : ot.priorite.value if ot.priorite else None,
             "date_prevue": str(ot.date_prevue) if ot.date_prevue else None,
         }
-        await _manager.send_personal_message(ot.id_assigne, notif)
+        await _manager.send_personal_message(user_id=ot.id_assigne, message=notif)
+        print(f"[OT] Notification envoyee a user_id={ot.id_assigne}")
         if ot.id_assigne_2:
-            notif2 = {**notif, "message": f"Un OT vous a été co-assigné : {ot.numero_ot}"}
-            await _manager.send_personal_message(ot.id_assigne_2, notif2)
+            notif2 = {**notif, "message": f"Un OT vous a ete co-assigne : {ot.numero_ot}"}
+            await _manager.send_personal_message(user_id=ot.id_assigne_2, message=notif2)
 
         return ot_to_dict(ot, db)
 
@@ -443,8 +561,8 @@ async def assigner_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
 
 @router.post("/{id_ot}/demarrer")
 async def demarrer_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
-    """Mécanicien démarre l'intervention - crée aussi l'Intervention"""
-    from models.intervention import Intervention, StatutValidation
+    """Mécanicien démarre l'intervention - enregistre le feedback immédiatement"""
+    from models.intervention import Intervention, StatutValidation, TypeTravail
     
     try:
         ot = db.get(OrdreTravail, id_ot)
@@ -452,33 +570,71 @@ async def demarrer_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="OT introuvable")
         if ot.statut != StatutOT.ASSIGNE:
             raise HTTPException(status_code=400,
-                                detail="OT doit être assigné pour démarrer")
+                                detail="OT doit etre assigne pour demarrer")
 
         now = datetime.now()
         ot.statut           = StatutOT.EN_COURS
         ot.date_debut_reelle = now
 
+        # extraire les champs feedback depuis la requete
+        id_realisateur       = data.get("id_realisateur", ot.id_assigne)
+        type_travail_val     = data.get("type_travail", "CORRECTIF")
+        description_travail  = data.get("description_travail", "")
+        observations         = data.get("observations", None)
+        composante_remplacee = data.get("composante_remplacee", None)
+
+        print(f"[DEBUG demarrer] data recue = {data}", flush=True)
+
+        # Convertir le type_travail string en enum (case-insensitive)
+        type_travail_upper = str(type_travail_val).upper()
+        valid_values = {e.value: e for e in TypeTravail}
+        type_travail_enum = valid_values.get(type_travail_upper, TypeTravail.CORRECTIF)
+        print(f"[DEBUG demarrer] type_travail_val={type_travail_val} -> enum={type_travail_enum}", flush=True)
+
         # Create Intervention if not exists
         intervention = db.query(Intervention).filter(Intervention.id_ot == id_ot).first()
         if not intervention:
-            # Get the primary assignee (id_assigne)
-            id_realisateur = data.get("id_realisateur", ot.id_assigne)
-            
             intervention = Intervention(
-                id_ot               = id_ot,
-                id_realisateur      = id_realisateur,
-                id_pole             = ot.id_pole,
-                id_equipement       = ot.id_equipement,
-                type_travail        = None,  # will be filled at submission
-                description_travail = "",
-                date_debut          = now,
-                date_fin            = None,
-                statut_validation   = StatutValidation.EN_ATTENTE,
+                id_ot                = id_ot,
+                id_realisateur       = id_realisateur,
+                id_pole              = ot.id_pole,
+                id_equipement        = ot.id_equipement,
+                type_travail         = type_travail_enum,
+                description_travail  = description_travail,
+                observations         = observations,
+                date_debut           = now,
+                date_fin             = None,
+                composante_remplacee = composante_remplacee,
+                statut_validation    = StatutValidation.EN_ATTENTE,
             )
             db.add(intervention)
+        else:
+            intervention.type_travail        = type_travail_enum
+            intervention.description_travail = description_travail
+            intervention.observations        = observations
+            if composante_remplacee:
+                intervention.composante_remplacee = composante_remplacee
 
         db.commit()
         db.refresh(ot)
+        
+        # ── Notification au Chef Équipe ─────────────────────────────────
+        if ot.id_assigne:
+            assignee = db.get(Utilisateur, ot.id_assigne)
+            if assignee and assignee.id_equipe:
+                ce = db.query(Utilisateur).filter(
+                    Utilisateur.id_equipe == assignee.id_equipe,
+                    Utilisateur.role == RoleEnum.CHEF_EQUIPE
+                ).first()
+                if ce:
+                    from services.notification_service import manager as _notif_manager
+                    await _notif_manager.send_personal_message(user_id=ce.id_user, message={
+                        "type"     : "OT_DEMARRE",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "message"  : f"L'OT {ot.numero_ot} a ete demarre par {assignee.prenom} {assignee.nom}.",
+                    })
+        
         return ot_to_dict(ot, db)
 
     except HTTPException:
@@ -633,6 +789,140 @@ def mecaniciens_disponibles(id_ot: int, db: Session = Depends(get_db)):
 
 from fastapi.responses import Response
 from services.export_service import generate_ot_csv, generate_ot_pdf_html, generate_ot_list_pdf_html
+from sqlalchemy import func, extract
+
+
+# ── GET — Stats Archives ─────────────────────────────────────────────
+
+@router.get("/archives/stats")
+def stats_archives(
+    id_pole: int = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        q = db.query(OrdreTravail).filter(OrdreTravail.statut == StatutOT.ARCHIVE)
+        if id_pole:
+            q = q.filter(OrdreTravail.id_pole == id_pole)
+
+        total = q.count()
+
+        # Par zone
+        zone_stats = db.query(
+            Zone.nom_zone,
+            func.count(OrdreTravail.id_ot)
+        ).join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement
+        ).join(Zone, Equipement.id_zone == Zone.id_zone
+        ).filter(OrdreTravail.statut == StatutOT.ARCHIVE
+        ).group_by(Zone.nom_zone).all()
+
+        # Par mois (cette année)
+        current_year = datetime.now().year
+        mois_stats = db.query(
+            extract('month', OrdreTravail.date_archive).label('mois'),
+            func.count(OrdreTravail.id_ot)
+        ).filter(
+            OrdreTravail.statut == StatutOT.ARCHIVE,
+            extract('year', OrdreTravail.date_archive) == current_year
+        ).group_by('mois').order_by('mois').all()
+
+        # Top intervenants
+        top_intervenants = db.query(
+            Utilisateur.nom,
+            Utilisateur.prenom,
+            func.count(Intervention.id_intervention)
+        ).join(Intervention, Intervention.id_realisateur == Utilisateur.id_user
+        ).join(OrdreTravail, Intervention.id_ot == OrdreTravail.id_ot
+        ).filter(OrdreTravail.statut == StatutOT.ARCHIVE
+        ).group_by(Utilisateur.id_user
+        ).order_by(func.count(Intervention.id_intervention).desc()
+        ).limit(5).all()
+
+        return {
+            "total": total,
+            "par_zone": [{"zone": z, "count": c} for z, c in zone_stats],
+            "par_mois": [{"mois": int(m), "count": c} for m, c in mois_stats],
+            "top_intervenants": [
+                {"nom": f"{p} {n}", "count": c}
+                for n, p, c in top_intervenants
+            ],
+        }
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Erreur serveur interne")
+
+
+# ── GET — Export Archives CSV ────────────────────────────────────────
+
+@router.get("/archives/export")
+def export_archives_csv(
+    id_pole: int = None,
+    id_zone: int = None,
+    date_debut: str = None,
+    date_fin: str = None,
+    type_ot: str = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        q = db.query(OrdreTravail).filter(OrdreTravail.statut == StatutOT.ARCHIVE)
+        if id_pole:
+            q = q.filter(OrdreTravail.id_pole == id_pole)
+        if type_ot:
+            q = q.filter(OrdreTravail.type_ot == type_ot)
+        if date_debut:
+            q = q.filter(OrdreTravail.date_archive >= datetime.fromisoformat(date_debut))
+        if date_fin:
+            q = q.filter(OrdreTravail.date_archive <= datetime.fromisoformat(date_fin))
+        if id_zone:
+            q = q.join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement
+                      ).filter(Equipement.id_zone == id_zone)
+
+        ots = q.order_by(OrdreTravail.date_archive.desc()).all()
+        ots_data = [ot_to_dict(o, db) for o in ots]
+
+        output = io.StringIO()
+        headers = [
+            "N° OT", "Type", "Classe", "Priorité",
+            "Machine Racine", "Composante", "Zone",
+            "Assigné", "Équipe",
+            "Type Travail", "Description Travail",
+            "Date Début", "Date Fin", "Durée (min)",
+            "Validé CE", "Validé HSE", "Date Archive",
+        ]
+        writer = csv.DictWriter(output, fieldnames=headers)
+        writer.writeheader()
+
+        for ot in ots_data:
+            equip = ot.get("equipement") or {}
+            inter = ot.get("intervention") or {}
+            assigne = ot.get("assigne") or {}
+            writer.writerow({
+                "N° OT": ot.get("numero_ot", ""),
+                "Type": ot.get("type_ot", ""),
+                "Classe": ot.get("classe", ""),
+                "Priorité": ot.get("priorite", ""),
+                "Machine Racine": equip.get("machine_racine_code", ""),
+                "Composante": equip.get("equipment_code", ""),
+                "Zone": equip.get("nom_zone", ""),
+                "Assigné": assigne.get("nom", ""),
+                "Équipe": "",
+                "Type Travail": inter.get("type_travail", ""),
+                "Description Travail": inter.get("description_travail", ""),
+                "Date Début": inter.get("date_debut", ""),
+                "Date Fin": inter.get("date_fin", ""),
+                "Durée (min)": str(ot.get("duree_reelle") or ""),
+                "Validé CE": ot.get("date_validation_ce", ""),
+                "Validé HSE": ot.get("date_validation_hse", ""),
+                "Date Archive": str(ot.get("date_archive") or ""),
+            })
+
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=archives_export.csv"}
+        )
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Erreur serveur interne")
 
 
 @router.get("/export/csv")

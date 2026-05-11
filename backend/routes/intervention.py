@@ -13,7 +13,8 @@ from models.user           import Utilisateur, RoleEnum
 from services.notification_service import manager as _notif_manager
 
 # ── Import du modèle d'archivage opérationnel (interventions_archivees) ──
-from models.historique_intervention import InterventionArchivee, SourceHistorique
+from models.historique_intervention import InterventionArchivee
+from models.historique_interventions import TypeTravailHistorique
 
 # NOTE : models.historique_interventions (avec s) = données CSV/SAP pour ML
 #        Ce fichier N'en a PAS besoin — il gère uniquement le workflow opérationnel.
@@ -211,7 +212,7 @@ async def soumettre_feedback(id_ot: int, data: dict, db: Session = Depends(get_d
             Utilisateur.id_pole == ot.id_pole,
         ).all()
         for chef in chefs:
-            await _notif_manager.send_personal_message(chef.id_user, {
+            await _notif_manager.send_personal_message(user_id=chef.id_user, message={
                 "type"     : "OT_TERMINE",
                 "id_ot"    : id_ot,
                 "numero_ot": ot.numero_ot,
@@ -260,21 +261,55 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
             ot.statut                          = StatutOT.ARCHIVE
             ot.date_archive                    = now
 
-            # ── Archiver dans interventions_archivees ──────────────────
+            # ── Archiver dans interventions_archivees (comme historique_interventions) ──
+            equip     = db.get(Equipement, ot.id_equipement)
+            equip_code = equip.equipment_code if equip else ""
+            equip_desc = equip.description if equip else ""
+            equip_level = equip.hierarchy_level if equip else None
+
+            parent_code = None
+            parent_level = None
+            if equip and equip.id_parent:
+                p = db.get(Equipement, equip.id_parent)
+                if p:
+                    parent_code = p.equipment_code
+                    parent_level = p.hierarchy_level
+
+            # Machine L1 (machine racine)
+            code_machine_l1 = None
+            if equip and equip.id_machine_racine:
+                racine = db.get(Equipement, equip.id_machine_racine)
+                if racine:
+                    code_machine_l1 = racine.equipment_code
+
+            # Mapper TypeTravail → TypeTravailHistorique
+            tt = intervention.type_travail
+            if tt in (TypeTravail.CORRECTIF, TypeTravail.REPARATION, TypeTravail.REMPLACEMENT):
+                tt_hist = TypeTravailHistorique.CORR
+            else:
+                tt_hist = TypeTravailHistorique.PREV
+
+            realisateur = db.get(Utilisateur, intervention.id_realisateur)
+            pole_realisateur = None
+            if realisateur and realisateur.id_pole:
+                pole_obj = db.get(Pole, realisateur.id_pole)
+                if pole_obj:
+                    pole_realisateur = pole_obj.code_pole
+
             archive = InterventionArchivee(
-                id_equipement          = ot.id_equipement,
-                code_equipement        = _get_code(ot.id_equipement, db),
-                description_equipement = _get_desc(ot.id_equipement, db),
-                id_pole                = ot.id_pole,
-                type_travail           = intervention.type_travail,
-                date_panne             = ot.date_prevue or date_type.today(),
-                date_debut             = intervention.date_debut,
-                date_fin               = intervention.date_fin,
-                duree_reelle           = _calc_duree(intervention.date_debut, intervention.date_fin),
-                observations           = intervention.observations,
-                composante_remplacee   = intervention.composante_remplacee,
-                source                 = SourceHistorique.SYSTEME,
-                id_ot                  = id_ot,
+                system_equipment       = code_machine_l1 or "",
+                equipment_description  = equip_desc or "",
+                equipment_code         = equip_code or "",
+                equipment_level        = equip_level,
+                parent_code            = parent_code,
+                parent_level           = parent_level,
+                type_travail           = tt_hist,
+                action_entity          = pole_realisateur,
+                date_declaration       = (intervention.date_soumission or ot.date_prevue or date_type.today()).date(),
+                date_fin               = intervention.date_fin.date() if intervention.date_fin else None,
+                date_creation          = (ot.date_prevue or date_type.today()),
+                cout_total             = 0.0,
+                source                 = "SYSTEME",
             )
             db.add(archive)
 
@@ -297,7 +332,7 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
                 Utilisateur.id_pole == ot.id_pole,
             ).all()
             for h in hse_users:
-                await _notif_manager.send_personal_message(h.id_user, {
+                await _notif_manager.send_personal_message(user_id=h.id_user, message={
                     "type"     : "OT_VALIDE_CE",
                     "id_ot"    : id_ot,
                     "numero_ot": ot.numero_ot,
@@ -310,7 +345,7 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
                 Utilisateur.id_pole == ot.id_pole,
             ).all()
             for m in methodistes:
-                await _notif_manager.send_personal_message(m.id_user, {
+                await _notif_manager.send_personal_message(user_id=m.id_user, message={
                     "type"     : "OT_VALIDE_HSE",
                     "id_ot"    : id_ot,
                     "numero_ot": ot.numero_ot,
@@ -350,6 +385,20 @@ async def rejeter_intervention(id_ot: int, data: dict, db: Session = Depends(get
 
         db.commit()
         db.refresh(intervention)
+
+        # ── Notification au maintenancier ───────────────────────────────
+        if intervention.id_realisateur:
+            await _notif_manager.send_personal_message(
+                user_id=intervention.id_realisateur,
+                message={
+                    "type"     : "OT_REJETE",
+                    "id_ot"    : id_ot,
+                    "numero_ot": ot.numero_ot,
+                    "motif"    : motif,
+                    "message"  : f"Votre OT {ot.numero_ot} a été rejeté. Motif: {motif}",
+                }
+            )
+
         return intervention_to_dict(intervention, db)
 
     except HTTPException:

@@ -21,7 +21,6 @@ const ROLES = [
   { value: 'CHEF_EQUIPE',       label: "Chef d'Équipe"       },
   { value: 'MECANICIEN',        label: 'Mécanicien'           },
   { value: 'TECHNICIEN',        label: 'Technicien'           },
-  { value: 'ELECTRICIEN',       label: 'Électricien'          },
   { value: 'HSE',               label: 'HSE'                  },
   { value: 'GESTIONNAIRE_STOCK', label: 'Gestionnaire Stock'   },
 ]
@@ -268,8 +267,7 @@ export default function AjoutUtilisateurPage() {
                 Genre <span className="text-red-500">*</span>
               </label>
               <div className="flex gap-2">
-                {[{ v: 'HOMME', l: '👨 Homme' }, { v: 'FEMME', l: '👩 Femme' }].map(g => (
-                  <button key={g.v} type="button"
+{[{ v: 'HOMME', l: 'Homme' }, { v: 'FEMME', l: 'Femme' }].map(g => (                  <button key={g.v} type="button"
                     onClick={() => set('genre', g.v)}
                     className={`flex-1 py-2.5 rounded-xl border-2 text-sm
                                 font-medium transition-all ${

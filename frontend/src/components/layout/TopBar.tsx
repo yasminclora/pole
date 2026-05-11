@@ -4,8 +4,10 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useRouter } from 'next/navigation'
 import { RootState } from '@/store/store'
 import { logout } from '@/store/slices/authSlice'
-import { Sun, Moon, Bell, User, LogOut, ChevronDown, X } from 'lucide-react'
-import { useWebSocket } from '@/hooks/useWebSocket'
+import { Sun, Moon, Bell, User, LogOut, ChevronDown, X, Search, Loader2 } from 'lucide-react'
+import { useGlobalNotifications } from '@/hooks/useGlobalNotifications'
+import { otService } from '@/services/otService'
+import { diService } from '@/services/diService'
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN       : 'Administrateur',
@@ -23,6 +25,7 @@ interface Notif {
   lu      : boolean
   time    : string
   type?   : string
+  link?   : string
 }
 
 interface TopBarProps {
@@ -36,46 +39,62 @@ export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
   const user     = useSelector((s: RootState) => s.auth.user)
 
   const [now,        setNow]       = useState(new Date())
-  const [notifs,     setNotifs]    = useState<Notif[]>([])
   const [showNotifs, setShowNotifs]= useState(false)
   const [showProfil, setShowProfil]= useState(false)
+  
+  // Recherche
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showResults, setShowResults] = useState(false)
+  const [searchResults, setSearchResults] = useState<{type: string, text: string, href: string}[]>([])
+  const [searching, setSearching] = useState(false)
 
-  const nonLues = notifs.filter(n => !n.lu).length
+  // Recherche en temps réel
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([])
+      return
+    }
+    
+    const timer = setTimeout(async () => {
+      setSearching(true)
+      const results: {type: string, text: string, href: string}[] = []
+      const q = searchQuery.toLowerCase()
+      
+      try {
+        const ots = await otService.liste({})
+        if (Array.isArray(ots)) {
+          ots.filter(o => o.numero_ot?.toLowerCase().includes(q)).slice(0, 3).forEach(o => {
+            results.push({ type: 'OT', text: o.numero_ot, href: `/ot/${o.id_ot}` })
+          })
+        }
+      } catch {}
+      
+      try {
+        const dis = await diService.liste({})
+        if (Array.isArray(dis)) {
+          dis.filter(d => d.numero_di?.toLowerCase().includes(q)).slice(0, 3).forEach(d => {
+            results.push({ type: 'DI', text: d.numero_di, href: `/di/${d.id_di}` })
+          })
+        }
+      } catch {}
+      
+      setSearchResults(results)
+      setSearching(false)
+    }, 400)
+    
+    return () => clearTimeout(timer)
+  }, [searchQuery])
 
-  // Mise à jour de l'heure toutes les 60s (pas chaque seconde → évite re-render excessif)
+  // Utiliser les notifications globales
+  const { notifications, nonLues, marquerLue, marquerToutesLues, supprimerNotification, viderNotifications } = useGlobalNotifications()
+
+  // Mise à jour de l'heure toutes les 60s
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(t)
   }, [])
 
-  // Notifications WebSocket
-  useWebSocket((msg) => {
-    const types = [
-      'NOUVEL_UTILISATEUR', 'UTILISATEUR_MODIFIE', 'UTILISATEUR_SUPPRIME',
-      'DEMANDE_ECHANGE_CREE', 'DEMANDE_ECHANGE_ACCEPTEE', 'DEMANDE_ECHANGE_REFUSEE',
-      'CONFIG_PLANNING_MISE_A_JOUR', 'EQUIPE_CONFIGUREE',
-      'nouvelle_di',
-    ]
-    let message = ''
-    if (msg.type === 'nouvelle_di') {
-      message = `Nouvelle DI: ${msg.numero_di} - ${msg.equipement}`
-    } else {
-      message = msg.message || `${msg.type} - ${JSON.stringify(msg.payload || {})}`
-    }
-    if (types.includes(msg.type)) {
-      setNotifs(prev => [{
-        id      : Date.now(),
-        message : message,
-        lu      : false,
-        time    : new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        type    : msg.type,
-      }, ...prev].slice(0, 20))
-    }
-  })
-
-  const marquerLues    = () => setNotifs(prev => prev.map(n => ({ ...n, lu: true })))
-  const supprimerNotif = (id: number) => setNotifs(prev => prev.filter(n => n.id !== id))
-  const handleLogout   = () => { dispatch(logout()); router.push('/login') }
+  const handleLogout = () => { dispatch(logout()); router.push('/login') }
 
   const initiales = user
     ? `${user.prenom?.[0] ?? ''}${user.nom?.[0] ?? ''}`.toUpperCase()
@@ -88,16 +107,97 @@ export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
   const couleur = user ? avatarColors[user.id_user % avatarColors.length] : 'bg-blue-600'
 
   return (
-    <header className="h-14 border-b flex items-center justify-between px-4 md:px-6 flex-shrink-0 relative z-30
-                       bg-white dark:bg-gray-900
-                       border-gray-200 dark:border-gray-800">
+    <header className="h-18 border-b flex items-center justify-between px-6 md:px-8 flex-shrink-0 relative z-30
+                       bg-[#0d2848]/80 backdrop-blur-sm
+                       border-blue-900/30">
 
-      {/* Gauche - Message bienvenue */}
-      <div>
-        <p className="text-gray-900 dark:text-white text-sm font-medium">
-          Bonjour, <span className="text-blue-600 dark:text-blue-400">{user?.prenom} {user?.nom}</span> 👋
-        </p>
-        <p className="text-gray-400 text-[11px]">Bienvenue sur Optima</p>
+      {/* Gauche - Message bienvenue avec logo industriel */}
+      <div className="flex items-center gap-4">
+        {/* Logo industriel schéma */}
+        <div className="w-10 h-10">
+          <svg viewBox="0 0 48 48" className="w-full h-full">
+            <circle cx="24" cy="24" r="10" fill="none" stroke="#3b82f6" strokeWidth="2"/>
+            <circle cx="24" cy="24" r="5" fill="rgba(59,130,246,0.4)" stroke="#3b82f6" strokeWidth="1.5"/>
+            {[0,60,120,180,240,300].map((angle, i) => (
+              <line key={i} x1="24" y1="13" x2="24" y2="8" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" transform={`rotate(${angle} 24 24)`}/>
+            ))}
+            <circle cx="35" cy="35" r="4" fill="none" stroke="#60a5fa" strokeWidth="1.5"/>
+            <circle cx="35" cy="35" r="1.5" fill="#60a5fa"/>
+            <line x1="28" y1="28" x2="31" y2="31" stroke="#60a5fa" strokeWidth="1.5"/>
+          </svg>
+        </div>
+        <div>
+          <p className="text-white text-xl font-bold">Bienvenue sur Optima</p>
+          <p className="text-blue-400/60 text-xs">Gestion de Maintenance</p>
+        </div>
+      </div>
+
+      {/* Centre - Barre de recherche rapide */}
+      <div className="hidden md:flex flex-1 max-w-md mx-8 relative">
+        <div className="relative w-full">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+          <input
+            type="text"
+            placeholder="Rechercher OT, DI, équipement..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onFocus={() => setShowResults(true)}
+            onBlur={() => setTimeout(() => setShowResults(false), 200)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && searchQuery.trim()) {
+                router.push(`/ot/liste?search=${encodeURIComponent(searchQuery)}`)
+              }
+            }}
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-blue-900/30 border border-blue-500/30 
+                     text-white text-sm placeholder-white/40
+                     focus:outline-none focus:border-blue-400 focus:bg-blue-900/50 transition-all"
+          />
+          
+          {/* Résultats dropdown */}
+          {showResults && searchQuery.trim() && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-[#0d2848] border border-blue-500/30 rounded-xl shadow-xl overflow-hidden z-50">
+              {searching ? (
+                <div className="p-4 flex items-center justify-center gap-2 text-white/60">
+                  <Loader2 size={16} className="animate-spin"/> Recherche...
+                </div>
+              ) : searchResults.length > 0 ? (
+                <div className="py-2">
+                  {searchResults.map((r, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        router.push(r.href)
+                        setShowResults(false)
+                        setSearchQuery('')
+                      }}
+                      className="w-full px-4 py-2.5 flex items-center gap-3 text-left hover:bg-blue-500/20 transition-colors"
+                    >
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        r.type === 'OT' ? 'bg-blue-500/30 text-blue-400' : 'bg-amber-500/30 text-amber-400'
+                      }`}>
+                        {r.type}
+                      </span>
+                      <span className="text-white text-sm">{r.text}</span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => {
+                      router.push(`/ot/liste?search=${encodeURIComponent(searchQuery)}`)
+                      setShowResults(false)
+                    }}
+                    className="w-full px-4 py-2 text-center text-blue-400 text-sm border-t border-blue-500/30 hover:bg-blue-500/10"
+                  >
+                    Voir tous les résultats →
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 text-white/40 text-sm text-center">
+                  Aucun résultat trouvé
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Droite - Actions */}
@@ -147,7 +247,7 @@ export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
           <button onClick={() => {
             setShowNotifs(!showNotifs)
             setShowProfil(false)
-            if (!showNotifs) marquerLues()
+            if (!showNotifs) marquerToutesLues()
           }}
             className="relative w-8 h-8 rounded-xl flex items-center justify-center
                        bg-gray-50 dark:bg-gray-800
@@ -173,30 +273,35 @@ export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
                   Notifications
                 </h3>
-                {notifs.length > 0 && (
-                  <button onClick={() => setNotifs([])}
+                {notifications.length > 0 && (
+                  <button onClick={() => viderNotifications()}
                     className="text-xs text-gray-400 hover:text-red-500 transition-colors">
                     Tout effacer
                   </button>
                 )}
               </div>
               <div className="max-h-72 overflow-y-auto">
-                {notifs.length === 0 ? (
+                {notifications.length === 0 ? (
                   <div className="py-10 text-center">
                     <Bell size={24} className="text-gray-300 dark:text-gray-600 mx-auto mb-2"/>
                     <p className="text-gray-400 text-sm">Aucune notification</p>
                   </div>
                 ) : (
-                  notifs.map(n => (
+                  notifications.map(n => (
                     <div key={n.id}
-                      className="flex items-start gap-3 px-4 py-3 border-b
+                      onClick={() => {
+                        if (n.link) {
+                          router.push(n.link)
+                          setShowNotifs(false)
+                        }
+                      }}
+                      className={`flex items-start gap-3 px-4 py-3 border-b
                                  border-gray-50 dark:border-gray-800/50
                                  hover:bg-gray-50 dark:hover:bg-gray-800/50
-                                 transition-colors group">
-                      <div className="w-8 h-8 rounded-full bg-blue-100
-                                              dark:bg-blue-900/30 flex items-center
-                                              justify-center flex-shrink-0 mt-0.5">
-                        <Bell size={13} className="text-blue-500"/>
+                                 transition-colors group cursor-pointer ${n.link ? 'hover:bg-blue-50 dark:hover:bg-blue-900/20' : ''}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center
+                                              justify-center flex-shrink-0 mt-0.5 ${['nouvelle_di', 'OT_ASSIGNE'].includes(n.type) ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-blue-100 dark:bg-blue-900/30'}`}>
+                        <Bell size={13} className={`${['nouvelle_di', 'OT_ASSIGNE'].includes(n.type) ? 'text-orange-500' : 'text-blue-500'}`}/>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
@@ -204,7 +309,7 @@ export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
                         </p>
                         <p className="text-xs text-gray-400 mt-0.5">{n.time}</p>
                       </div>
-                      <button onClick={() => supprimerNotif(n.id)}
+                      <button onClick={(e) => { e.stopPropagation(); supprimerNotification(n.id) }}
                         className="opacity-0 group-hover:opacity-100 text-gray-400
                                    hover:text-red-500 transition-all flex-shrink-0">
                         <X size={13}/>

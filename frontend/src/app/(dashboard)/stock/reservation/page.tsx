@@ -14,6 +14,7 @@ interface Reservation {
   id_piece: number
   code_stock: string
   designation: string
+  description?: string
   quantite_demandee: number
   quantite_livree: number | null
   statut: string
@@ -22,9 +23,14 @@ interface Reservation {
   date_demande: string
   date_validation: string | null
   date_livraison: string | null
+  date_prevue: string | null
   id_ot: number
+  numero_ot: string
   id_mecanicien: number
   mecanicien_nom: string
+  mecanicien_role?: string
+  equipement_code?: string
+  equipement_description?: string
 }
 
 const STATUT_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
@@ -194,7 +200,17 @@ export default function StockReservationPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <button
+          onClick={() => setFilterStatut('')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            filterStatut === '' 
+              ? 'bg-[#003B7A] text-white' 
+              : 'bg-white border text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          Tous
+        </button>
         {['EN_ATTENTE', 'VALIDEE', 'LIVREE', 'ANNULEE'].map(statut => (
           <button
             key={statut}
@@ -241,17 +257,23 @@ export default function StockReservationPage() {
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 font-mono">{res.code_stock}</p>
+                      {res.equipement_code && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          Equipt: {res.equipement_code} - {res.equipement_description || ''}
+                        </p>
+                      )}
                     </div>
                   </div>
                   
                   <div className="flex items-center gap-6">
                     <div className="text-right">
                       <p className="text-sm font-semibold">{res.quantite_demandee}</p>
-                      <p className="text-xs text-gray-400">demandé(es)</p>
+                      <p className="text-xs text-gray-400">demandee(s)</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm text-gray-500">{res.mecanicien_nom}</p>
-                      <p className="text-xs text-gray-400">OT #{res.id_ot}</p>
+                      <p className="text-sm font-semibold text-[#003B7A]">{res.mecanicien_nom}</p>
+                      <p className="text-xs text-gray-400">{res.mecanicien_role || 'Mecanicien'} | OT: {res.numero_ot || res.id_ot}</p>
+                      <p className="text-xs text-gray-400">{new Date(res.date_demande).toLocaleDateString('fr-FR')}</p>
                     </div>
                     
                     {/* Actions */}
@@ -272,18 +294,29 @@ export default function StockReservationPage() {
                           </button>
                         </>
                       )}
-                      {res.statut === 'VALIDEE' && (
-                        <button
-                          onClick={() => {
-                            setSelectedReservation(res)
-                            setDeliveryQty(res.quantite_demandee)
-                            setShowDeliveryModal(true)
-                          }}
-                          className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 flex items-center gap-1"
-                        >
-                          <Truck size={14}/> Livrer
-                        </button>
-                      )}
+                      {res.statut === 'VALIDEE' && (() => {
+                        const now = new Date()
+                        const datePrevue = res.date_prevue ? new Date(res.date_prevue) : null
+                        const peutLivrer = !datePrevue || datePrevue <= now
+                        
+                        return peutLivrer ? (
+                          <button
+                            onClick={() => {
+                              setSelectedReservation(res)
+                              setDeliveryQty(res.quantite_demandee)
+                              setShowDeliveryModal(true)
+                            }}
+                            className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 flex items-center gap-1"
+                          >
+                            <Truck size={14}/> Livrer
+                          </button>
+                        ) : (
+                          <div className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                            <Clock size={14}/>
+                            <span>Disponible le {datePrevue.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        )
+                      })()}
                       {res.statut === 'LIVREE' && (
                         <div className="flex items-center gap-1 text-green-600 text-sm">
                           <CheckCircle size={16}/>

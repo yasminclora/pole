@@ -17,16 +17,9 @@ interface OT {
   description: string
   date_prevue?: string | null
   created_at: string
-  equipement?: { equipment_code: string; description: string }
+  equipement?: { equipment_code: string; description: string; machine_racine_code?: string; machine_racine_desc?: string }
   assigne?: { id: number; nom: string; role: string } | null
   methodiste?: { id: number; nom: string } | null
-}
-
-const URGENCE_CFG: Record<string, { label: string; cls: string; dot: string }> = {
-  FAIBLE: { label: 'Faible', cls: 'bg-green-50 text-green-700 border-green-200', dot: 'bg-green-500' },
-  NORMALE: { label: 'Normale', cls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
-  HAUTE: { label: 'Haute', cls: 'bg-orange-50 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
-  CRITIQUE: { label: 'Critique', cls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
 }
 
 const STATUT_CFG: Record<string, { label: string; cls: string; dot: string }> = {
@@ -39,18 +32,8 @@ const STATUT_CFG: Record<string, { label: string; cls: string; dot: string }> = 
   ARCHIVE: { label: 'Archivé', cls: 'bg-gray-50 text-gray-400 border-gray-200', dot: 'bg-gray-400' },
 }
 
-type SortKey = 'numero_ot' | 'priorite' | 'statut' | 'created_at'
+type SortKey = 'numero_ot' | 'statut'
 type SortDir = 'asc' | 'desc'
-
-function UrgBadge({ v }: { v: string }) {
-  const c = URGENCE_CFG[v] ?? URGENCE_CFG.NORMALE
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold border whitespace-nowrap ${c.cls}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`}/>
-      {c.label}
-    </span>
-  )
-}
 
 function StatutBadge({ v }: { v: string }) {
   const c = STATUT_CFG[v] ?? STATUT_CFG.CREE
@@ -135,7 +118,6 @@ export default function ListeOTPage() {
     .sort((a, b) => {
       const m = sortDir === 'asc' ? 1 : -1
       if (sortKey === 'numero_ot') return m * a.numero_ot.localeCompare(b.numero_ot)
-      if (sortKey === 'priorite') return m * a.priorite.localeCompare(b.priorite)
       if (sortKey === 'statut') return m * a.statut.localeCompare(b.statut)
       if (sortKey === 'created_at') return m * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
       return 0
@@ -232,14 +214,11 @@ export default function ListeOTPage() {
                   <th className={thSort} onClick={() => toggleSort('numero_ot')}>
                     <div className="flex items-center gap-1">N° OT<SortIcon col="numero_ot" k={sortKey} d={sortDir}/></div>
                   </th>
-                  <th className={thBase}>Équipement</th>
+                  <th className={thBase}>Machine Racine</th>
+                  <th className={thBase}>Equipement</th>
                   <th className={thBase}>Assigné à</th>
-                  <th className={thBase}>Priorité</th>
                   <th className={thSort} onClick={() => toggleSort('statut')}>
                     <div className="flex items-center gap-1">Statut<SortIcon col="statut" k={sortKey} d={sortDir}/></div>
-                  </th>
-                  <th className={thSort} onClick={() => toggleSort('created_at')}>
-                    <div className="flex items-center gap-1">Date<SortIcon col="created_at" k={sortKey} d={sortDir}/></div>
                   </th>
                   <th className={`${thBase} text-right pr-4`}>Action</th>
                 </tr>
@@ -255,12 +234,21 @@ export default function ListeOTPage() {
                       <p className="font-mono text-sm font-bold" style={{color:'#003B7A'}}>{ot.numero_ot}</p>
                     </td>
 
-                    <td className="px-3 py-4 min-w-[140px]">
+                    <td className="px-3 py-4">
+                      {ot.equipement?.machine_racine_code ? (
+                        <div>
+                          <p className="font-mono text-xs font-semibold text-[#003B7A]">{ot.equipement.machine_racine_code}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{ot.equipement.machine_racine_desc}</p>
+                        </div>
+                      ) : <span className="text-gray-400 text-xs">—</span>}
+                    </td>
+
+                    <td className="px-3 py-4 min-w-[120px]">
                       {ot.equipement ? (
-                        <>
+                        <div>
                           <p className="font-mono text-xs font-semibold text-[#003B7A]">{ot.equipement.equipment_code}</p>
-                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{ot.equipement.description}</p>
-                        </>
+                          <p className="text-xs text-gray-400 mt-0.5">{ot.equipement.description}</p>
+                        </div>
                       ) : <span className="text-gray-400 text-xs">—</span>}
                     </td>
 
@@ -268,13 +256,7 @@ export default function ListeOTPage() {
                       {ot.assigne?.nom || <span className="text-amber-500">Non assigné</span>}
                     </td>
 
-                    <td className="px-3 py-4"><UrgBadge v={ot.priorite}/></td>
-
                     <td className="px-3 py-4"><StatutBadge v={ot.statut}/></td>
-
-                    <td className="px-3 py-4 text-xs text-gray-500 whitespace-nowrap">
-                      {fmtDate(ot.created_at)}
-                    </td>
 
                     <td className="px-4 py-4 text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">

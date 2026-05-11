@@ -118,7 +118,7 @@ export default function CreerDIPage() {
       id_pole: idPole,
       id_declarant: idUser,
       description_panne: description.trim(),
-      gravite: urgence,
+      urgence: urgence,
     }
     
     try {
@@ -190,12 +190,7 @@ export default function CreerDIPage() {
                     <span className="text-xs text-gray-500">Niveau:</span>
                     <span className="text-xs font-medium text-[#003B7A]">{getHierarchyLabel(machineSel.hierarchy_level, machineSel.description)}</span>
                   </div>
-                  {machineSel.nom_zone && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">Zone:</span>
-                      <span className="text-xs font-medium text-[#003B7A]">{machineSel.nom_zone}</span>
-                    </div>
-                  )}
+             
                 </div>
               </div>
               <button type="button" onClick={() => { setMachineSel(null); setComposantes([]); setComposante(null) }}
@@ -259,12 +254,7 @@ export default function CreerDIPage() {
                       <span className="text-xs text-gray-500">Niveau:</span>
                       <span className="text-xs font-medium text-[#003B7A]">{getHierarchyLabel(composante.hierarchy_level, composante.description)}</span>
                     </div>
-                    {composante.nom_zone && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">Zone:</span>
-                        <span className="text-xs font-medium text-[#003B7A]">{composante.nom_zone}</span>
-                      </div>
-                    )}
+               
                   </div>
                 </div>
                 <button type="button" onClick={() => setComposante(null)} className="text-gray-400 hover:text-red-500 flex-shrink-0 ml-2">

@@ -1,8 +1,8 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+﻿import { createSlice, PayloadAction } from '@reduxjs/toolkit'
 
 export type Role =
   | 'ADMIN' | 'METHODISTE' | 'CHEF_POLE'
-  | 'CHEF_EQUIPE' | 'MECANICIEN' | 'TECHNICIEN' | 'HSE' 
+  | 'CHEF_EQUIPE' | 'MECANICIEN' | 'TECHNICIEN' | 'HSE'
 
 export interface AuthUser {
   id_user        : number
@@ -33,20 +33,20 @@ const initialState: AuthState = {
   isLoggedIn : false,
 }
 
+function normalizeUser(u: AuthUser): AuthUser {
+  u.id_user  = Number(u.id_user)
+  if (u.id_pole)   u.id_pole   = Number(u.id_pole)
+  if (u.id_equipe) u.id_equipe = Number(u.id_equipe)
+  if (u.role)      u.role      = u.role.replace('RoleEnum.', '').replace('GenreEnum.', '') as Role
+  return u
+}
+
 const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-
-    setCredentials: (
-      state,
-      action: PayloadAction<{ user: AuthUser; token: string }>
-    ) => {
-      const u = action.payload.user
-      // Forcer les types numériques
-      u.id_user  = Number(u.id_user)
-      if (u.id_pole)   u.id_pole   = Number(u.id_pole)
-      if (u.id_equipe) u.id_equipe = Number(u.id_equipe)
+    setCredentials: (state, action: PayloadAction<{ user: AuthUser; token: string }>) => {
+      const u = normalizeUser(action.payload.user)
       state.user        = u
       state.accessToken = action.payload.token
       state.isLoggedIn  = true
@@ -74,10 +74,7 @@ const authSlice = createSlice({
         const token = localStorage.getItem('token')
         const raw   = localStorage.getItem('user')
         if (token && raw) {
-          const u = JSON.parse(raw) as AuthUser
-          u.id_user  = Number(u.id_user)
-          if (u.id_pole)   u.id_pole   = Number(u.id_pole)
-          if (u.id_equipe) u.id_equipe = Number(u.id_equipe)
+          const u = normalizeUser(JSON.parse(raw) as AuthUser)
           state.accessToken = token
           state.user        = u
           state.isLoggedIn  = true

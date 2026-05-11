@@ -12,13 +12,20 @@ CYCLE = ["Matin", "Matin", "Apres-midi", "Apres-midi", "Nuit", "Nuit", "Repos", 
 ORDRE = ["Alpha", "Bravo", "Charlie", "Delta"]
 
 
-def get_quart_simple(date_cible: date, config: ConfigPlanning | None, equipe: Equipe) -> str:
+def get_quart_simple(date_cible: date, config: ConfigPlanning | None, equipe: Equipe, heure: int | None = None) -> str:
     """
     Calcule le quart de travail pour une équipe à une date donnée.
-    Utilise la date_reference_cycle et position_initiale_cycle de l'équipe.
+    Si heure est fournie et entre 0h-5h (fin de nuit), on utilise la
+    veille pour déterminer l'équipe de nuit active.
     """
     if not equipe:
         return "Matin"
+    
+    # Gestion nuit : entre minuit et 6h, l'équipe active est celle
+    # qui était de Nuit la veille (shift 22h→6h)
+    if heure is not None and 0 <= heure < 6:
+        from datetime import timedelta
+        date_cible = date_cible - timedelta(days=1)
     
     # Si pas de config, utiliser la date de référence de l'équipe
     ref_date = config.date_debut if config else equipe.date_reference_cycle
@@ -53,11 +60,13 @@ def get_disponibilites_par_date(
     id_pole: int,
     date_cible: str,  # YYYY-MM-DD
     classe: str,
+    heure: int = None,  # optionnel, pour gérer la nuit
     db: Session = Depends(get_db)
 ):
     """
     Retourne les utilisateurs disponibles pour une date donnée et une classe.
-    Un utilisateur est disponible s'il travaille en quart 'Matin' (06h-14h).
+    Tous les quarts sont inclus (Matin, Apres-midi, Nuit), sauf Repos.
+    heure (0-23) : si entre 0 et 5, cherche l'équipe de nuit de la veille.
     """
     try:
         target_date = date.fromisoformat(date_cible)
@@ -73,17 +82,32 @@ def get_disponibilites_par_date(
     result = []
     
     for equipe in equipes:
-        # Calculer le quart pour cette équipe à cette date
-        quart = get_quart_simple(target_date, config, equipe)
-        
-        # SiRepos, l'équipe ne travaille pas
-        if quart == "Repos":
-            continue
-        
-        # Si le quart est "Matin", les utilisateurs sont disponibles (06h-14h)
-        # On peut aussi inclure Apres-midi si on veut, mais ici on filtre sur Matin
-        if quart != "Matin":
-            continue
+        if heure is not None:
+            # Déterminer le quart actif selon l'heure
+            from datetime import timedelta
+            if 0 <= heure < 6:
+                # Fin de nuit (0h-5h) : seule l'équipe en Nuit la veille travaille
+                jour_ref = target_date - timedelta(days=1)
+                quart = get_quart_simple(jour_ref, config, equipe)
+                if quart != "Nuit":
+                    continue
+            elif 6 <= heure < 14:
+                quart = get_quart_simple(target_date, config, equipe)
+                if quart != "Matin":
+                    continue
+            elif 14 <= heure < 22:
+                quart = get_quart_simple(target_date, config, equipe)
+                if quart != "Apres-midi":
+                    continue
+            else:  # 22-23h
+                quart = get_quart_simple(target_date, config, equipe)
+                if quart != "Nuit":
+                    continue
+        else:
+            # Pas d'heure : afficher toutes les équipes sauf Repos
+            quart = get_quart_simple(target_date, config, equipe)
+            if quart == "Repos":
+                continue
         
         # Récupérer les utilisateurs de cette équipe
         users = db.query(Utilisateur).filter(

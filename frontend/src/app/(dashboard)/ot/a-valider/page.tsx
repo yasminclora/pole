@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation'
 import { useSelector } from 'react-redux'
 import { RootState } from '@/store/store'
 import { otService } from '@/services/otService'
-import { Loader2, Search, X, RefreshCw, Eye, CheckCircle, AlertTriangle, ClipboardCheck, FileText } from 'lucide-react'
+import { interventionService } from '@/services/interventionService'
+import { Loader2, Search, X, RefreshCw, Eye, CheckCircle, AlertTriangle, ClipboardCheck, FileText, Download, FileSpreadsheet, Archive } from 'lucide-react'
 
 interface OT {
   id_ot: number
@@ -18,7 +19,7 @@ interface OT {
   date_debut?: string | null
   created_at: string
   equipement?: { equipment_code: string; description: string }
-  assigne?: { id: number; nom: string; role: string } | null
+  assigne?: { id: number; nom: string; role: string; id_equipe?: number | null } | null
   methodiste?: { id: number; nom: string } | null
 }
 
@@ -70,6 +71,7 @@ export default function AValiderOTPage() {
   const idUser = Number(authUser?.id_user)
   const idPole = Number(authUser?.id_pole)
   const role = authUser?.role || ''
+  const idEquipe = authUser?.id_equipe ? Number(authUser.id_equipe) : null
 
   const [ots, setOts] = useState<OT[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,8 +88,35 @@ export default function AValiderOTPage() {
 
   useEffect(() => { charger() }, [charger])
 
-  const otsAValiderCE = ots.filter(o => o.statut === 'TERMINE')
+  const [validant, setValidant] = useState<number | null>(null)
+
+  const handleValider = async (id_ot: number, roleValidation: string) => {
+    if (validant) return
+    setValidant(id_ot)
+    try {
+      await interventionService.valider(id_ot, { id_validateur: idUser, role: roleValidation })
+      charger()
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Erreur lors de la validation')
+    } finally {
+      setValidant(null)
+    }
+  }
+
+  // Filtrer pour CE : seulement les OT de SON équipe (même id_equipe que le CE)
+  const otsAValiderCE = ots.filter(o => {
+    if (o.statut !== 'TERMINE') return false
+    // Si CE, filtrer par son équipe
+    if (role === 'CHEF_EQUIPE' && idEquipe) {
+      return o.assigne?.id_equipe === idEquipe
+    }
+    return true
+  })
+  
   const otsAValiderHSE = ots.filter(o => o.statut === 'VALIDE_CE')
+  
+  // OT ready for methodiste to archive
+  const otsAArchiver = ots.filter(o => o.statut === 'VALIDE_HSE')
 
   const otsFiltrees = ots.filter(o => {
     if (!search) return true
@@ -108,6 +137,34 @@ export default function AValiderOTPage() {
 
   const peutValiderCE = role === 'CHEF_EQUIPE' || role === 'CHEF_POLE'
   const peutValiderHSE = role === 'HSE' || role === 'ADMIN'
+  const peutArchiver = role === 'METHODISTE' || role === 'ADMIN'
+
+  // Export functions
+  const exportToCSV = () => {
+    const data = otsFiltrees
+    const headers = ['N° OT', 'Type', 'Classe', 'Priorité', 'Statut', 'Équipement', 'Assigné', 'Date prévue']
+    const rows = data.map(o => [
+      o.numero_ot,
+      o.type_ot,
+      o.classe,
+      o.priorite,
+      o.statut,
+      o.equipement?.equipment_code || '',
+      o.assigne?.nom || '',
+      o.date_prevue ? new Date(o.date_prevue).toLocaleDateString('fr-FR') : '',
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(';')).join('\n')
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `ot_a_valider_${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+  }
+
+  const exportToPDF = (id_ot: number) => {
+    window.open(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8001'}/ot/${id_ot}/export/pdf`, '_blank')
+  }
 
   return (
     <div className="space-y-6 pb-6">
@@ -160,6 +217,17 @@ export default function AValiderOTPage() {
             </button>
           )}
         </div>
+        
+        {/* Export buttons */}
+        <div className="flex gap-2 ml-auto">
+          <button
+            onClick={exportToCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition"
+          >
+            <FileSpreadsheet size={16} />
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {peutValiderHSE && otsAValiderHSE.length > 0 && (
@@ -203,8 +271,9 @@ export default function AValiderOTPage() {
                       <td className="px-3 py-3"><UrgBadge v={ot.priorite}/></td>
                       <td className="px-3 py-3 text-xs text-gray-500">{fmtDate(ot.created_at)}</td>
                       <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
-                        <button className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-bold hover:bg-green-600">
-                          Valider
+                        <button onClick={() => handleValider(ot.id_ot, 'HSE')}
+                          className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-bold hover:bg-green-600">
+                          {validant === ot.id_ot ? <Loader2 size={12} className="animate-spin"/> : 'Valider'}
                         </button>
                       </td>
                     </tr>
@@ -261,8 +330,62 @@ export default function AValiderOTPage() {
                       <td className="px-3 py-3"><UrgBadge v={ot.priorite}/></td>
                       <td className="px-3 py-3 text-xs text-gray-500">{fmtDate(ot.created_at)}</td>
                       <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
-                        <button className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600">
-                          Valider
+                        <button onClick={() => handleValider(ot.id_ot, '')}
+                          className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600">
+                          {validant === ot.id_ot ? <Loader2 size={12} className="animate-spin"/> : 'Valider'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {peutArchiver && otsAArchiver.length > 0 && (
+        <div className="bg-white rounded-2xl border-2 border-purple-200 overflow-hidden shadow-sm">
+          <div className="bg-purple-50 px-6 py-4 border-b border-purple-200 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                <Archive className="text-purple-600" size={20}/>
+              </div>
+              <div>
+                <h2 className="font-bold text-purple-800">Pret a archiver</h2>
+                <p className="text-sm text-purple-600">{otsAArchiver.length} OT validés HSE</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-4">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead style={{backgroundColor:'#003B7A'}}>
+                  <tr>
+                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">N OT</th>
+                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Equipement</th>
+                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Assigne</th>
+                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Type</th>
+                    <th className="px-3 py-2 text-right text-[10px] font-bold uppercase text-blue-100 pr-3">Archiver</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {otsAArchiver.map(ot => (
+                    <tr key={ot.id_ot} className="hover:bg-gray-50">
+                      <td className="px-3 py-3 font-mono font-bold text-[#003B7A]">{ot.numero_ot}</td>
+                      <td className="px-3 py-3">
+                        <p className="font-mono text-xs text-[#003B7A]">{ot.equipement?.equipment_code || '-'}</p>
+                        <p className="text-xs text-gray-400">{ot.equipement?.description}</p>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-gray-600">{ot.assigne?.nom || '-'}</td>
+                      <td className="px-3 py-3 text-xs text-gray-500">{ot.type_ot}</td>
+                      <td className="px-3 py-3 text-right">
+                        <button
+                          onClick={() => handleValider(ot.id_ot, 'METHODISTE')}
+                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-medium"
+                        >
+                          {validant === ot.id_ot ? <Loader2 size={12} className="animate-spin"/> : 'Archiver'}
                         </button>
                       </td>
                     </tr>

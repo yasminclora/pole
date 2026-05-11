@@ -8,12 +8,166 @@ Appelé uniquement depuis routers/dashboard.py.
 from sqlalchemy import func, extract, case, text
 from sqlalchemy.orm import Session
 from typing import Optional
+from datetime import datetime, timedelta
 
 from models.historique_interventions import (
     HistoriqueIntervention,
     TypeTravailHistorique,
     
 )
+from models.ot   import OrdreTravail, StatutOT
+from models.di   import DemandeIntervention, StatutDI
+from models.intervention import Intervention, StatutValidation
+from models.equipement import Equipement
+from models.zone import Zone
+
+
+# ══════════════════════════════════════════════════════════════════════
+# DASHBOARD LIVE — OT & DI
+# ══════════════════════════════════════════════════════════════════════
+
+def get_live_kpi(db: Session, id_pole: Optional[int] = None):
+    q_ot = db.query(OrdreTravail)
+    q_di = db.query(DemandeIntervention)
+    if id_pole:
+        q_ot = q_ot.filter(OrdreTravail.id_pole == id_pole)
+        q_di = q_di.filter(DemandeIntervention.id_pole == id_pole)
+
+    total_ot       = q_ot.count()
+    en_cours       = q_ot.filter(OrdreTravail.statut == StatutOT.EN_COURS).count()
+    termine        = q_ot.filter(OrdreTravail.statut == StatutOT.TERMINE).count()
+    di_en_attente  = q_di.filter(DemandeIntervention.statut == StatutDI.EN_ATTENTE).count()
+    di_verifie     = q_di.filter(DemandeIntervention.statut == StatutDI.VERIFIE).count()
+    non_archives   = q_ot.filter(OrdreTravail.statut != StatutOT.ARCHIVE).count()
+
+    return {
+        "total_ot": total_ot,
+        "ot_non_archives": non_archives,
+        "ot_en_cours": en_cours,
+        "ot_termine": termine,
+        "taux_completion": round(termine / total_ot * 100, 1) if total_ot else 0,
+        "di_en_attente": di_en_attente,
+        "di_verifie": di_verifie,
+        "di_total": q_di.count(),
+    }
+
+
+def get_ot_by_status(db: Session, id_pole: Optional[int] = None):
+    from sqlalchemy import text as sa_text
+    q = db.query(
+        OrdreTravail.statut,
+        func.count().label('count'),
+    )
+    if id_pole:
+        q = q.filter(OrdreTravail.id_pole == id_pole)
+    rows = q.group_by(OrdreTravail.statut).order_by(sa_text('count desc')).all()
+    return [{"statut": r.statut.value, "count": r.count} for r in rows]
+
+
+def get_di_by_status(db: Session, id_pole: Optional[int] = None):
+    from sqlalchemy import text as sa_text
+    q = db.query(
+        DemandeIntervention.statut,
+        func.count().label('count'),
+    )
+    if id_pole:
+        q = q.filter(DemandeIntervention.id_pole == id_pole)
+    rows = q.group_by(DemandeIntervention.statut).order_by(sa_text('count desc')).all()
+    return [{"statut": r.statut, "count": r.count} for r in rows]
+
+
+def get_ot_by_zone(db: Session, id_pole: Optional[int] = None):
+    q = db.query(
+        Zone.nom_zone,
+        func.count(OrdreTravail.id_ot).label('count'),
+    ).join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement
+    ).join(Zone, Equipement.id_zone == Zone.id_zone)
+
+    if id_pole:
+        q = q.filter(OrdreTravail.id_pole == id_pole)
+
+    rows = q.group_by(Zone.nom_zone).order_by(func.count(OrdreTravail.id_ot).desc()).all()
+    return [{"zone": r.nom_zone, "count": r.count} for r in rows]
+
+
+def get_ot_by_pole(db: Session):
+    from models.pole import Pole
+    q = db.query(
+        Pole.nom_pole,
+        func.count(OrdreTravail.id_ot).label('count'),
+    ).join(Pole, OrdreTravail.id_pole == Pole.id_pole
+    ).group_by(Pole.nom_pole
+    ).order_by(func.count(OrdreTravail.id_ot).desc()).all()
+    return [{"pole": r.nom_pole, "count": r.count} for r in rows]
+
+
+def get_di_by_pole(db: Session):
+    from models.pole import Pole
+    q = db.query(
+        Pole.nom_pole,
+        func.count(DemandeIntervention.id_di).label('count'),
+    ).join(Pole, DemandeIntervention.id_pole == Pole.id_pole
+    ).group_by(Pole.nom_pole
+    ).order_by(func.count(DemandeIntervention.id_di).desc()).all()
+    return [{"pole": r.nom_pole, "count": r.count} for r in rows]
+
+
+def get_intervention_by_status(db: Session, id_pole: Optional[int] = None):
+    from sqlalchemy import text as sa_text
+    q = db.query(
+        Intervention.statut_validation,
+        func.count().label('count'),
+    )
+    if id_pole:
+        q = q.filter(Intervention.id_pole == id_pole)
+    rows = q.group_by(Intervention.statut_validation).order_by(sa_text('count desc')).all()
+    return [{"statut": r.statut_validation.value, "count": r.count} for r in rows]
+
+
+def get_recent_activity(db: Session, id_pole: Optional[int] = None, limit: int = 10):
+    """Dernières activités (OT + DI) triées par created_at"""
+    from sqlalchemy import text as sa_text
+
+    q_ot = db.query(
+        OrdreTravail.numero_ot.label('ref'),
+        sa_text("ordres_travail.type_ot::VARCHAR").label('sous_type'),
+        sa_text("ordres_travail.statut::VARCHAR").label('statut'),
+        OrdreTravail.created_at.label('date'),
+        sa_text("'OT'").label('type'),
+        OrdreTravail.id_ot.label('id'),
+    )
+    q_di = db.query(
+        DemandeIntervention.numero_di.label('ref'),
+        DemandeIntervention.urgence.label('sous_type'),
+        DemandeIntervention.statut.label('statut'),
+        DemandeIntervention.created_at.label('date'),
+        sa_text("'DI'").label('type'),
+        DemandeIntervention.id_di.label('id'),
+    )
+    q_di = db.query(
+        DemandeIntervention.numero_di.label('ref'),
+        DemandeIntervention.urgence.label('sous_type'),
+        DemandeIntervention.statut.label('statut'),
+        DemandeIntervention.created_at.label('date'),
+        sa_text(f"'DI'").label('type'),
+        DemandeIntervention.id_di.label('id'),
+    )
+    if id_pole:
+        q_ot = q_ot.filter(OrdreTravail.id_pole == id_pole)
+        q_di = q_di.filter(DemandeIntervention.id_pole == id_pole)
+
+    union = q_ot.union(q_di).order_by(sa_text('date desc')).limit(limit).all()
+    return [
+        {
+            "ref": r.ref,
+            "type": r.type,
+            "sous_type": r.sous_type,
+            "statut": r.statut,
+            "date": str(r.date) if r.date else None,
+            "id": r.id,
+        }
+        for r in union
+    ]
 
 
 # ══════════════════════════════════════════════════════════════════════

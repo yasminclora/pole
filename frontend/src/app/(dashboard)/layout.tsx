@@ -44,7 +44,7 @@ export default function DashboardLayout({
   if (!ready || !isLoggedIn) return null
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
+    <div className="flex h-screen overflow-hidden" style={{ background: 'linear-gradient(135deg, #0a1628 0%, #0d2848 50%, #0a1628 100%)' }}>
       <Sidebar/>
       <div className="flex flex-col flex-1 overflow-hidden">
         <TopBar darkMode={darkMode} toggleDark={() => setDarkMode(!darkMode)}/>

@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 
 // ─── API ─────────────────────────────────────────────────────────────
 async function searchPiece(query) {
-  const url = new URL("http://localhost:8000/stock/search", window.location.origin);
+  const url = new URL("http://localhost:8001/stock/search", window.location.origin);
   url.searchParams.set("q", query.trim());
   try {
     const r = await fetch(url.toString());
@@ -15,7 +15,7 @@ async function searchPiece(query) {
 }
 
 async function searchByEquipmentCode(code) {
-  const url = new URL("http://localhost:8000/stock/by-composante", window.location.origin);
+  const url = new URL("http://localhost:8001/stock/by-composante", window.location.origin);
   url.searchParams.set("equipment_code", code.trim());
   try {
     const r = await fetch(url.toString());

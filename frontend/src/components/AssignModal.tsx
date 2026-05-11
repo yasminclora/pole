@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { X, Calendar, Clock, Users, Check, AlertCircle, Loader2 } from 'lucide-react'
 import { otService, UserDisponible } from '@/services/otService'
 
@@ -34,39 +34,70 @@ export default function AssignModal({ isOpen, onClose, ot, idPole, onAssignSucce
   const [selected1, setSelected1] = useState<number | null>(null)
   const [selected2, setSelected2] = useState<number | null>(null)
   const [datePrevue, setDatePrevue] = useState('')
-  const [dureeEstimee, setDureeEstimee] = useState(ot?.duree_estimee || 60)
+  const [dureeEstimee, setDureeEstimee] = useState(60)
 
-  useEffect(() => {
-    if (isOpen && ot) {
-      loadUsers()
-      if (ot.date_prevue) {
-        setDatePrevue(ot.date_prevue.split('T')[0])
-      }
-    }
-  }, [isOpen, ot])
-
-  async function loadUsers() {
+  // Fonction pour charger les utilisateurs
+  const loadUsers = useCallback(async (dateToSend?: string | null) => {
     setLoading(true)
     setError('')
     try {
       const poleId = Number(idPole)
       if (!poleId || isNaN(poleId) || poleId <= 0) {
-        setError('Erreur: ID du pôle invalide — Veuillez vous reconnecter')
+        setError('Erreur: ID du pôle invalide')
         return
       }
 
       const otClasse = ot?.classe || 'GLOBALE'
-      const datePrevue = ot?.date_prevue ? ot.date_prevue.split('T')[0] : null
-
-      const data = await otService.getDisponibles(poleId, otClasse, datePrevue || undefined)
+      console.log('[AssignModal] Loading users with date:', dateToSend, 'classe:', otClasse)
+      
+      const data = await otService.getDisponibles(poleId, otClasse, dateToSend || undefined)
       setUsers(data)
+      console.log('[AssignModal] Users loaded:', data.length)
     } catch (e: any) {
-      const errMsg = e?.message ?? 'Impossible de charger les maintenanciers disponibles.'
-      setError(errMsg)
+      console.error('[AssignModal] Error loading users:', e)
+      setError(e?.message || 'Erreur chargement utilisateurs')
     } finally {
       setLoading(false)
     }
-  }
+  }, [idPole, ot])
+
+  // Initialiser la date et durée quand le modal s'ouvre
+  useEffect(() => {
+    if (!isOpen || !ot) return
+    
+    console.log('[AssignModal] Modal opened, ot:', ot)
+    
+    // Récupérer la date prévue de l'OT (depuis la base de données)
+    if (ot.date_prevue) {
+      // La date vient de l'API en format ISO, on la convertit pour datetime-local
+      const dt = new Date(ot.date_prevue)
+      const formatted = dt.toISOString().slice(0, 16)
+      setDatePrevue(formatted)
+      console.log('[AssignModal] Date set from OT:', formatted)
+      
+      // Charger les utilisateurs avec cette date
+      loadUsers(ot.date_prevue)
+    } else {
+      // Pas de date prévue, charger tous les utilisateurs disponibles
+      console.log('[AssignModal] No date, loading all users')
+      loadUsers(null)
+    }
+    
+    // Récupérer la durée estimée
+    if (ot.duree_estimee) {
+      setDureeEstimee(ot.duree_estimee)
+    }
+    
+  }, [isOpen, ot])
+
+  // Recharger quand l'utilisateur change la date
+  useEffect(() => {
+    if (!isOpen || !datePrevue) return
+    console.log('[AssignModal] Date changed, reloading:', datePrevue)
+    // Convertir le format datetime-local en ISO
+    const isoDate = new Date(datePrevue).toISOString()
+    loadUsers(isoDate)
+  }, [datePrevue])
 
   async function handleSubmit() {
     if (!selected1) {
@@ -74,8 +105,7 @@ export default function AssignModal({ isOpen, onClose, ot, idPole, onAssignSucce
       return
     }
 
-    // For non-GLOBALE classes, only allow 1 user
-    const secondUser = (ot?.classe === 'GLOBALE' || ot?.classe === 'GLOBALE') ? selected2 : null
+    const secondUser = selected2
 
     setSubmitting(true)
     setError('')
@@ -97,7 +127,7 @@ export default function AssignModal({ isOpen, onClose, ot, idPole, onAssignSucce
 
   if (!isOpen || !ot) return null
 
-  const canSelectTwo = ot.classe === 'GLOBALE' || ot.classe === 'GLOBALE'
+  const canSelectTwo = false
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -132,10 +162,10 @@ export default function AssignModal({ isOpen, onClose, ot, idPole, onAssignSucce
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
-                <Calendar size={14} className="inline mr-1" /> Date prévue
+                <Calendar size={14} className="inline mr-1" /> Date et heure prévue
               </label>
               <input
-                type="date"
+                type="datetime-local"
                 value={datePrevue}
                 onChange={(e) => setDatePrevue(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-[#003B7A] focus:outline-none"
@@ -160,9 +190,7 @@ export default function AssignModal({ isOpen, onClose, ot, idPole, onAssignSucce
           <div className="bg-blue-50 rounded-xl p-4 flex items-center gap-3">
             <div className={`w-3 h-3 rounded-full ${canSelectTwo ? 'bg-green-500' : 'bg-blue-500'}`} />
             <span className="text-sm text-blue-800">
-              {canSelectTwo 
-                ? 'Classe GLOBALE: Vous pouvez assigner 2 personnes'
-                : `Classe ${ot.classe}: Sélectionnez 1 ${ot.classe === 'MECANIQUE' ? 'mécanicien' : 'technicien'}`}
+              {`Classe ${ot.classe}: Sélectionnez 1 ${ot.classe === 'MECANIQUE' ? 'mecanicien' : ot.classe === 'ELECTRIQUE' ? 'technicien' : 'chef d\'equipe'}`}
             </span>
           </div>
 

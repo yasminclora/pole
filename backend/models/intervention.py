@@ -9,6 +9,7 @@ import enum
 
 
 class TypeTravail(str, enum.Enum):
+    CORRECTIF     = "CORRECTIF"      # réparation corrective
     VERIFICATION  = "VERIFICATION"   # juste vérifier
     NETTOYAGE     = "NETTOYAGE"      # nettoyage
     REMPLACEMENT  = "REMPLACEMENT"   # remplacer la composante
@@ -50,7 +51,7 @@ class Intervention(Base):
                              nullable=False)
 
     # Détails du travail effectué
-    type_travail    = Column(SAEnum(TypeTravail), nullable=False)
+    type_travail    = Column(SAEnum(TypeTravail), nullable=True)
     description_travail = Column(Text, nullable=False)
     observations    = Column(Text, nullable=True)
 
