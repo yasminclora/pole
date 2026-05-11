@@ -1,7 +1,28 @@
+# Environnement
 backend/.env
+frontend/.env.local
+.env
+
+# Python
 **/__pycache__/
 *.pyc
+.venv/
 venv/
+
+# Node
 node_modules/
-backend/nul
-backend.log
+.next/
+out/
+
+# IDE
+.claude/
+.vscode/
+.idea/
+
+# Logs & temp
+*.log
+backend/backend.log
+
+# OS
+.DS_Store
+Thumbs.db

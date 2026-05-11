@@ -185,10 +185,10 @@ ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
 
 ```env
 # URL de l'API backend
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8001
 
 # URL WebSocket
-NEXT_PUBLIC_WS_URL=ws://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8001
 ```
 
 ---
@@ -214,12 +214,12 @@ python seed_historique.py
 
 ```bash
 cd backend
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8001
 ```
 
-Le serveur API sera accessible sur: `http://localhost:8000`
-- Documentation API (Swagger): `http://localhost:8000/docs`
-- Documentation API (ReDoc): `http://localhost:8000/redoc`
+Le serveur API sera accessible sur: `http://localhost:8001`
+- Documentation API (Swagger): `http://localhost:8001/docs`
+- Documentation API (ReDoc): `http://localhost:8001/redoc`
 
 ### 3. Démarrer le Frontend
 
