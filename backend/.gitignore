@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+.env.local
+
+# ML model files (uploadés à l'exécution)
+storage/models/*
+!storage/models/.gitkeep

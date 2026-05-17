@@ -23,9 +23,29 @@ export const usersService = {
     const res = await api.put(`/users/${id}/infos-personnelles`, data)
     return res.data
   },
-  supprimer: async (id: number) => {
-    const res = await api.delete(`/users/${id}`)
+  supprimer: async (id: number, force = false) => {
+    const res = await api.delete(`/users/${id}`, { params: force ? { force: true } : {} })
     return res.data
+  },
+
+  /**
+   * Récupère la page HTML d'impression (avec auth Bearer) et l'ouvre dans
+   * un nouvel onglet qui lance automatiquement la boîte d'impression.
+   */
+  ouvrirImpression: async (id_pole?: number | null) => {
+    const res = await api.get('/users/imprimer', {
+      params: id_pole ? { id_pole } : {},
+      responseType: 'text',
+    })
+    const win = window.open('', '_blank')
+    if (!win) {
+      alert("Impossible d'ouvrir la fenêtre d'impression. Vérifiez votre bloqueur de pop-ups.")
+      return
+    }
+    win.document.open()
+    win.document.write(res.data)
+    win.document.close()
+    // Le HTML inclut déjà un bouton "Imprimer" — on laisse l'utilisateur choisir
   },
   reinitMdp: async (id: number) => {
     const res = await api.post(`/users/${id}/reinit-mdp`)

@@ -18,25 +18,18 @@ export default function DashboardLayout({
   const dispatch   = useDispatch()
   const router     = useRouter()
   const isLoggedIn = useSelector((s: RootState) => s.auth.isLoggedIn)
-  const [darkMode, setDarkMode] = useState(false)
   const [ready,    setReady]    = useState(false)
 
   useEffect(() => {
     dispatch(loadFromStorage() as any)
     setReady(true)
+    // Force le mode clair quoi qu'il arrive (legacy dark mode supprimé)
+    document.documentElement.classList.remove('dark')
   }, [])
 
   useEffect(() => {
     if (ready && !isLoggedIn) router.push('/login')
   }, [ready, isLoggedIn])
-
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-  }, [darkMode])
 
   // Gestion du timeout de session (30 min d'inactivité)
   useSessionTimeout(isLoggedIn)
@@ -47,8 +40,8 @@ export default function DashboardLayout({
     <div className="flex h-screen overflow-hidden" style={{ background: 'linear-gradient(135deg, #0a1628 0%, #0d2848 50%, #0a1628 100%)' }}>
       <Sidebar/>
       <div className="flex flex-col flex-1 overflow-hidden">
-        <TopBar darkMode={darkMode} toggleDark={() => setDarkMode(!darkMode)}/>
-        <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 p-6">
+        <TopBar/>
+        <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
           {children}
         </main>
       </div>

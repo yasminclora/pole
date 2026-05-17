@@ -10,7 +10,7 @@ import { useWebSocket  } from '@/hooks/useWebSocket'
 import {
   Search, Download, Pencil, Trash2, Loader2,
   Users, ChevronUp, ChevronDown, Building2,
-  UsersRound, KeyRound
+  UsersRound, KeyRound, Printer,
 } from 'lucide-react'
 
 interface User {
@@ -152,10 +152,35 @@ export default function ListeUtilisateursPage() {
     try {
       await usersService.supprimer(id)
       setUsers(prev => prev.filter(u => u.id_user !== id))
-    } catch {
-      alert('Erreur lors de la suppression')
+    } catch (err: any) {
+      // 409 = utilisateur lié à des enregistrements existants → proposer force
+      if (err?.response?.status === 409) {
+        const detail = err.response.data?.detail ?? 'Données associées.'
+        const force = confirm(
+          `${detail}\n\nVoulez-vous quand même supprimer ?\n` +
+          `(Les enregistrements seront réassignés à un autre admin)`
+        )
+        if (force) {
+          try {
+            await usersService.supprimer(id, true)
+            setUsers(prev => prev.filter(u => u.id_user !== id))
+          } catch (err2: any) {
+            alert(`Suppression forcée échouée : ${err2?.response?.data?.detail ?? err2.message}`)
+          }
+        }
+      } else {
+        alert(`Erreur lors de la suppression : ${err?.response?.data?.detail ?? err.message}`)
+      }
     } finally {
       setSuppId(null)
+    }
+  }
+
+  const imprimer = async () => {
+    try {
+      await usersService.ouvrirImpression()
+    } catch (err: any) {
+      alert(`Erreur lors de l'ouverture : ${err?.response?.data?.detail ?? err.message}`)
     }
   }
 
@@ -285,7 +310,16 @@ export default function ListeUtilisateursPage() {
             {!isAdmin && ' — votre pôle uniquement'}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {(authUser?.role === 'ADMIN' || authUser?.role === 'METHODISTE' || authUser?.role === 'CHEF_POLE') && (
+            <button onClick={imprimer}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border
+                         border-[#003B7A] text-[#003B7A] bg-blue-50
+                         hover:bg-blue-100 transition-all text-sm font-medium">
+              <Printer size={15}/>
+              Imprimer la liste
+            </button>
+          )}
           <button onClick={exportCSV}
             className="flex items-center gap-2 px-4 py-2 rounded-xl border
                        border-gray-200 dark:border-gray-700

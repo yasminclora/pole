@@ -88,6 +88,15 @@ from routes.historique   import router as historique_router
 from routes.dashboard    import router as dashboard_router
 from routes.predictions  import router as predictions_router
 
+# ── Modèles ML (admin) ──────────────────────────────────────
+from routes.modeles_ml   import router as modeles_ml_router
+
+# ── Export données pour réentraînement (admin) ───────────────
+from routes.data_export  import router as data_export_router
+
+# ── Notifications ──────────────────────────────────────────────
+from routes.notifications import router as notifications_router
+
 # ── Disponibilite ──────────────────────────────────────────────
 from routes.disponibilite import router as disponibilite_router
 
@@ -110,6 +119,9 @@ app.include_router(stock_router,        dependencies=_auth)     # préfixe /stoc
 app.include_router(historique_router,   dependencies=_auth)     # préfixe /historique défini dans le router
 app.include_router(predictions_router,  dependencies=_auth)
 app.include_router(disponibilite_router, prefix="/disponibilite", tags=["Disponibilite"], dependencies=_auth)
+app.include_router(modeles_ml_router,    prefix="/modeles-ml",    tags=["Modeles ML"],    dependencies=_auth)
+app.include_router(data_export_router,   dependencies=_auth)
+app.include_router(notifications_router, dependencies=_auth)  # préfixe /notifications défini dans le router
 
 # ── WebSocket ─────────────────────────────────────────────────────────
 from services.notification_service import manager

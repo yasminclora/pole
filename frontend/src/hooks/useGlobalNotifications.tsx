@@ -1,196 +1,233 @@
-﻿'use client'
+'use client'
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { useSelector } from 'react-redux'
 import { RootState } from '@/store/store'
+import api from '@/services/axiosInstance'
 
 export interface Notification {
-  id: number
-  message: string
-  type: string
-  link?: string
-  time: string
-  lu: boolean
+  id           : number
+  id_backend  ?: number       // id_notification côté BDD (pour marquer lu en REST)
+  message      : string
+  titre       ?: string
+  type         : string
+  link        ?: string
+  time         : string
+  lu           : boolean
+  payload     ?: any
 }
 
 interface NotificationContextType {
-  notifications: Notification[]
-  ajouterNotification: (notif: Omit<Notification, 'id' | 'time' | 'lu'>) => void
-  marquerLue: (id: number) => void
-  marquerToutesLues: () => void
+  notifications        : Notification[]
+  ajouterNotification  : (notif: Omit<Notification, 'id' | 'time' | 'lu'>) => void
+  marquerLue           : (id: number) => void
+  marquerToutesLues    : () => void
   supprimerNotification: (id: number) => void
-  viderNotifications: () => void
-  nonLues: number
+  viderNotifications   : () => void
+  nonLues              : number
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null)
 
 let wsInstance: WebSocket | null = null
 
+// ───────────────────────────────────────────────────────────────
+//  Types d'événements "silencieux" — diffusés en WS pour permettre
+//  aux pages de se rafraîchir, mais N'apparaissent PAS dans le
+//  centre de notifications (pas pertinents pour l'utilisateur final).
+// ───────────────────────────────────────────────────────────────
+const SILENT_EVENTS = new Set<string>([
+  'NOUVEL_UTILISATEUR',
+  'UTILISATEUR_MODIFIE',
+  'UTILISATEUR_SUPPRIME',
+  'CONFIG_PLANNING_MISE_A_JOUR',
+  'EQUIPE_MISE_A_JOUR',
+  'DEMANDE_ECHANGE_CREEE',
+  'DEMANDE_ECHANGE_TRAITEE',
+])
+
+// ───────────────────────────────────────────────────────────────
+//  Mapping type → texte fallback + lien (utilisé si pas de message)
+// ───────────────────────────────────────────────────────────────
+function routeForType(type: string): string {
+  switch (type) {
+    case 'nouvelle_di'       : return '/di/valider'
+    case 'DI_VALIDEE'        :
+    case 'DI_REJETEE'        : return '/di/mes-di'
+    case 'OT_ASSIGNE'        :
+    case 'PIECE_LIVREE'      :
+    case 'RESERVATION_VALIDEE':
+    case 'OT_REWORK'         : return '/ot/mes-ot'
+    case 'OT_TERMINE'        :
+    case 'OT_VALIDE_CE'      :
+    case 'OT_REJETE_HSE'     :
+    case 'OT_RESOUMIS'       : return '/ot/a-valider'
+    case 'OT_VALIDE_HSE'     :
+    case 'OT_ARCHIVE'        : return '/ot/archives'
+    case 'RESERVATION_PIECE' : return '/stock/reservation'
+    case 'MON_OT_VALIDE_CE'  :
+    case 'MON_OT_VALIDE_HSE' :
+    case 'OT_REJETE_DEFINITIF':
+    case 'MON_OT_REJETE_HSE' : return '/ot/mes-ot'
+    default                  : return ''
+  }
+}
+
+function shouldShowForRole(type: string, role?: string): boolean {
+  // Filtres : qui voit quoi
+  if (type === 'nouvelle_di' && role !== 'METHODISTE') return false
+  if (type === 'RESERVATION_PIECE' && role !== 'GESTIONNAIRE_STOCK' && role !== 'ADMIN') return false
+  return true
+}
+
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const accessToken = useSelector((s: RootState) => s.auth.accessToken)
-  const user = useSelector((s: RootState) => s.auth.user)
+  const user        = useSelector((s: RootState) => s.auth.user)
   const ajouterNotifRef = useRef<((notif: Omit<Notification, 'id' | 'time' | 'lu'>) => void) | null>(null)
-
-  console.log('[NotifProvider] Render - user:', user?.id_user, 'accessToken:', !!accessToken, 'notifications:', notifications.length, 'ref:', !!ajouterNotifRef.current)
 
   const nonLues = notifications.filter(n => !n.lu).length
 
   const ajouterNotification = useCallback((notif: Omit<Notification, 'id' | 'time' | 'lu'>) => {
-    console.log('[NotifProvider] ajouterNotification appelee:', notif)
-    const newNotif: Notification = {
-      ...notif,
-      id: Date.now() + Math.random(),
-      time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-      lu: false,
-    }
     setNotifications(prev => {
-      return [newNotif, ...prev].slice(0, 50)
+      // Anti-doublon par id_backend
+      if (notif.id_backend && prev.some(n => n.id_backend === notif.id_backend)) return prev
+      const newNotif: Notification = {
+        ...notif,
+        id  : Date.now() + Math.random(),
+        time: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        lu  : false,
+      }
+      return [newNotif, ...prev].slice(0, 100)
     })
-    console.log('[NotifProvider] Notification ajoutee a la liste:', newNotif.message)
   }, [])
 
-  useEffect(() => {
-    ajouterNotifRef.current = ajouterNotification
-  }, [ajouterNotification])
+  useEffect(() => { ajouterNotifRef.current = ajouterNotification }, [ajouterNotification])
 
-  const marquerLue = useCallback((id: number) => {
+  const marquerLue = useCallback(async (id: number) => {
+    const notif = notifications.find(n => n.id === id)
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, lu: true } : n))
-  }, [])
+    if (notif?.id_backend) {
+      try { await api.put(`/notifications/${notif.id_backend}/lu`) } catch {}
+    }
+  }, [notifications])
 
-  const marquerToutesLues = useCallback(() => {
+  const marquerToutesLues = useCallback(async () => {
     setNotifications(prev => prev.map(n => ({ ...n, lu: true })))
+    try { await api.post('/notifications/me/tout-marquer-lu') } catch {}
   }, [])
 
-  const supprimerNotification = useCallback((id: number) => {
+  const supprimerNotification = useCallback(async (id: number) => {
+    const notif = notifications.find(n => n.id === id)
     setNotifications(prev => prev.filter(n => n.id !== id))
-  }, [])
+    if (notif?.id_backend) {
+      try { await api.delete(`/notifications/${notif.id_backend}`) } catch {}
+    }
+  }, [notifications])
 
-  const viderNotifications = useCallback(() => {
-    setNotifications([])
-  }, [])
+  const viderNotifications = useCallback(() => setNotifications([]), [])
 
-  // WebSocket
+  // ─────────────────────────────────────────────────────────────
+  //  Rattrapage REST : fetch les non-lues au login / reconnexion
+  // ─────────────────────────────────────────────────────────────
+  const fetchNonLues = useCallback(async () => {
+    if (!user?.id_user) return
+    try {
+      const res = await api.get('/notifications/me/non-lues')
+      const list = Array.isArray(res.data) ? res.data : []
+      // Ajoute par ordre chronologique (plus ancien en premier dans state, donc on inverse)
+      const mapped: Notification[] = list.map((n: any) => ({
+        id        : Date.now() + Math.random() + n.id_notification,
+        id_backend: n.id_notification,
+        type      : n.type,
+        titre     : n.titre,
+        message   : n.message,
+        link      : routeForType(n.type),
+        time      : n.created_at ? new Date(n.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '',
+        lu        : false,
+        payload   : n.payload,
+      }))
+      // Filtrer par rôle au cas où
+      const filtered = mapped.filter(m => shouldShowForRole(m.type, user.role))
+      setNotifications(prev => {
+        // Anti-doublon
+        const existingIds = new Set(prev.map(p => p.id_backend).filter(Boolean))
+        const newOnes = filtered.filter(m => !existingIds.has(m.id_backend))
+        return [...newOnes, ...prev].slice(0, 100)
+      })
+    } catch (e) {
+      console.warn('[Notif] fetch non-lues KO:', e)
+    }
+  }, [user?.id_user, user?.role])
+
+  // ─────────────────────────────────────────────────────────────
+  //  WebSocket (avec rattrapage REST à la connexion)
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    console.log('[NotifProvider] WS Effect START - user:', user?.id_user, 'accessToken:', accessToken ? 'yes' : 'no')
-    
-    if (!user?.id_user) {
-      console.log('[NotifProvider] Pas de user')
-      return
-    }
-    if (!accessToken) {
-      console.log('[NotifProvider] Pas de accessToken')
-      return
-    }
+    if (!user?.id_user || !accessToken) return
 
-    console.log('[NotifProvider] Creation connexion WebSocket...')
-    console.log('[NotifProvider] Callback ref exists:', !!ajouterNotifRef.current)
-
-    // Si deja connecte, ne pas recreer
+    // Si déjà connecté pour ce user, ne pas recréer
     if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
-      console.log('[NotifProvider] WS deja connecte')
+      // Mais on rattrape quand même les non-lues (au cas où on a changé d'onglet)
+      fetchNonLues()
       return
     }
 
-    // Fermer l'ancienne connexion
-    if (wsInstance) {
-      wsInstance.close()
-      wsInstance = null
-    }
+    if (wsInstance) { wsInstance.close(); wsInstance = null }
 
     const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8001'
     const url = `${WS_BASE}/ws/${user.id_user}?token=${encodeURIComponent(accessToken)}`
-    
-    console.log('[NotifProvider] Creating WebSocket:', url)
     const ws = new WebSocket(url)
     wsInstance = ws
 
     ws.onopen = () => {
-      console.log('[NotifProvider] WS connecte!')
+      console.log('[Notif] WS connecté')
+      // ★ Rattrapage REST des non-lues
+      fetchNonLues()
     }
-    ws.onerror = (e) => {
-      console.error('[NotifProvider] WS erreur:', e)
-    }
-    ws.onclose = (e) => {
-      console.log('[NotifProvider] WS ferme:', e.code)
-      wsInstance = null
-    }
+
+    ws.onerror = (e) => console.warn('[Notif] WS erreur', e)
+    ws.onclose = () => { wsInstance = null }
 
     ws.onmessage = (e) => {
-      console.log('[NotifProvider] WS message recu:', e.data)
       try {
         const msg = JSON.parse(e.data)
-        console.log('[NotifProvider] Message parse:', msg.type, msg)
-        console.log('[NotifProvider] callback ref:', !!ajouterNotifRef.current, ajouterNotifRef.current)
 
-        if (!ajouterNotifRef.current) {
-          console.log('[NotifProvider] ERREUR: callback null!')
-          return
-        }
+        // ① Toujours dispatcher l'event WS pour les pages qui s'y abonnent
+        //    via useWebSocket (rafraîchissement temps-réel d'une liste, etc.)
+        try {
+          window.dispatchEvent(new CustomEvent('app:ws-message', { detail: msg }))
+        } catch {}
 
-        // Filtrer par rôle
-        const userRole = user?.role
-        if (msg.type === 'nouvelle_di' && userRole !== 'METHODISTE') {
-          console.log('[NotifProvider] Ignore nouvelle_di pour non-methodiste:', userRole)
-          return
-        }
-        if (msg.type === 'RESERVATION_PIECE' && userRole !== 'GESTIONNAIRE_STOCK' && userRole !== 'ADMIN') {
-          console.log('[NotifProvider] Ignore RESERVATION_PIECE pour non-gestionnaire:', userRole)
-          return
-        }
+        // ② Si c'est un événement "silencieux" → on ne l'affiche pas dans le centre
+        if (SILENT_EVENTS.has(msg.type)) return
 
-        let notificationMsg = ''
-        let link = ''
+        // ③ Filtrage par rôle
+        if (!shouldShowForRole(msg.type, user.role)) return
+        if (!ajouterNotifRef.current) return
 
-switch (msg.type) {
-          case 'nouvelle_di':
-            notificationMsg = `Nouvelle DI a valider: ${msg.numero_di}`
-            link = '/di/valider'
-            break
-          case 'OT_ASSIGNE':
-            notificationMsg = `OT vous a ete assigne: ${msg.numero_ot || msg.numero}`
-            link = '/ot/mes-ot'
-            break
-          case 'OT_TERMINE':
-            notificationMsg = `OT termine en attente: ${msg.numero_ot}`
-            link = '/ot/a-valider'
-            break
-          case 'OT_VALIDE_CE':
-            notificationMsg = `OT valide par CE, validation HSE requise: ${msg.numero_ot}`
-            link = '/ot/a-valider'
-            break
-          case 'OT_VALIDE_HSE':
-            notificationMsg = `OT valide HSE: ${msg.numero_ot}`
-            link = '/ot/archives'
-            break
-          case 'DI_VALIDEE':
-            notificationMsg = `Votre DI a ete validee - OT: ${msg.numero_ot}`
-            link = '/di/mes-di'
-            break
-          case 'DI_REJETEE':
-            notificationMsg = `Votre DI a ete rejetee: ${msg.numero_di}`
-            link = '/di/mes-di'
-            break
-          case 'PIECE_LIVREE':
-            notificationMsg = `Piece disponible: ${msg.code_piece}`
-            link = '/ot/mes-ot'
-            break
-          case 'RESERVATION_PIECE':
-            notificationMsg = `Nouvelle reservation: ${msg.code_piece} (OT ${msg.id_ot})`
-            link = '/stock/reservation'
-            break
-          default:
-            notificationMsg = msg.message || msg.description || `${msg.type}`
-        }
-
-        if (notificationMsg) {
-          ajouterNotifRef.current({ message: notificationMsg, type: msg.type, link })
-        }
+        const message = msg.message || msg.description || `${msg.type}`
+        ajouterNotifRef.current({
+          message,
+          titre     : msg.titre,
+          type      : msg.type,
+          link      : routeForType(msg.type),
+          id_backend: msg.id_notification,
+          payload   : msg,
+        })
       } catch (err) {
-        console.error('[Notif] Parse error:', err)
+        console.error('[Notif] parse error', err)
       }
     }
-  }, [user?.id_user, accessToken])
+  }, [user?.id_user, user?.role, accessToken, fetchNonLues])
+
+  // ─────────────────────────────────────────────────────────────
+  //  Rattrapage périodique (toutes les 60s en filet de sécurité)
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id_user) return
+    const interval = setInterval(() => { fetchNonLues() }, 60_000)
+    return () => clearInterval(interval)
+  }, [user?.id_user, fetchNonLues])
 
   return (
     <NotificationContext.Provider value={{

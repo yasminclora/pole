@@ -559,18 +559,108 @@ async def assigner_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
 
 # ── POST — Démarrer OT ────────────────────────────────────────────────
 
+@router.get("/{id_ot}/peut-demarrer")
+def peut_demarrer(id_ot: int, db: Session = Depends(get_db)):
+    """
+    Indique au frontend si l'OT peut être démarré.
+    Conditions :
+      1. Statut == ASSIGNE (ou REWORK pour re-saisie après rejet)
+      2. Date prévue <= aujourd'hui
+      3. TOUTES les réservations de pièces de l'OT sont LIVREE
+    """
+    from models.stock import ReservationPiece, StatutReservation, PieceStock
+
+    ot = db.get(OrdreTravail, id_ot)
+    if not ot:
+        raise HTTPException(status_code=404, detail="OT introuvable")
+
+    raisons: list[str] = []
+    statut_ok = ot.statut in (StatutOT.ASSIGNE, StatutOT.REWORK)
+    if not statut_ok:
+        raisons.append(f"OT en statut {ot.statut} (doit être ASSIGNE)")
+
+    today = date.today()
+    date_ok = ot.date_prevue is None or (ot.date_prevue.date() if hasattr(ot.date_prevue, 'date') else ot.date_prevue) <= today
+    if not date_ok:
+        d_str = ot.date_prevue.strftime('%d/%m/%Y') if hasattr(ot.date_prevue, 'strftime') else str(ot.date_prevue)
+        raisons.append(f"OT prévu le {d_str} — vous ne pouvez démarrer qu'à partir de cette date")
+
+    # Réservations
+    reservations = db.query(ReservationPiece).filter(
+        ReservationPiece.id_ot == id_ot,
+        ReservationPiece.statut != StatutReservation.ANNULEE,
+    ).all()
+
+    reservs_info = []
+    pieces_ok = True
+    for r in reservations:
+        piece = db.get(PieceStock, r.id_piece)
+        livree = r.statut == StatutReservation.LIVREE
+        if not livree:
+            pieces_ok = False
+        reservs_info.append({
+            "id_reservation": r.id_reservation,
+            "code_stock"    : piece.code_stock if piece else None,
+            "designation"   : piece.designation if piece else None,
+            "statut"        : r.statut.value if r.statut else None,
+            "livree"        : livree,
+        })
+    if not pieces_ok:
+        en_attente = [r["code_stock"] for r in reservs_info if not r["livree"]]
+        raisons.append(f"En attente de livraison : {', '.join(en_attente)}")
+
+    return {
+        "peut_demarrer": statut_ok and date_ok and pieces_ok,
+        "statut_ok"    : statut_ok,
+        "date_ok"      : date_ok,
+        "pieces_ok"    : pieces_ok,
+        "raisons"      : raisons,
+        "reservations" : reservs_info,
+        "date_prevue"  : str(ot.date_prevue) if ot.date_prevue else None,
+        "statut_actuel": ot.statut.value if ot.statut else None,
+    }
+
+
 @router.post("/{id_ot}/demarrer")
 async def demarrer_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
-    """Mécanicien démarre l'intervention - enregistre le feedback immédiatement"""
+    """Mécanicien démarre l'intervention - enregistre le feedback immédiatement.
+    Verrouillé : on vérifie statut + date + pièces livrées."""
     from models.intervention import Intervention, StatutValidation, TypeTravail
-    
+    from models.stock import ReservationPiece, StatutReservation
+
     try:
         ot = db.get(OrdreTravail, id_ot)
         if not ot:
             raise HTTPException(status_code=404, detail="OT introuvable")
-        if ot.statut != StatutOT.ASSIGNE:
-            raise HTTPException(status_code=400,
-                                detail="OT doit etre assigne pour demarrer")
+
+        # ── VERROUS ────────────────────────────────────────────────
+        if ot.statut not in (StatutOT.ASSIGNE, StatutOT.REWORK):
+            raise HTTPException(
+                status_code=400,
+                detail=f"OT en statut {ot.statut} — doit être ASSIGNE ou REWORK pour démarrer",
+            )
+
+        # Date prévue : on n'autorise pas un démarrage avant la date prévue
+        today = date.today()
+        if ot.date_prevue:
+            d_prevue = ot.date_prevue.date() if hasattr(ot.date_prevue, 'date') else ot.date_prevue
+            if d_prevue > today:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"OT prévu le {d_prevue.strftime('%d/%m/%Y')} — démarrage impossible avant cette date",
+                )
+
+        # Toutes les réservations actives doivent être LIVREE
+        reservations = db.query(ReservationPiece).filter(
+            ReservationPiece.id_ot == id_ot,
+            ReservationPiece.statut != StatutReservation.ANNULEE,
+        ).all()
+        non_livrees = [r for r in reservations if r.statut != StatutReservation.LIVREE]
+        if non_livrees:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{len(non_livrees)} pièce(s) en attente de livraison — impossible de démarrer",
+            )
 
         now = datetime.now()
         ot.statut           = StatutOT.EN_COURS
@@ -787,9 +877,11 @@ def mecaniciens_disponibles(id_ot: int, db: Session = Depends(get_db)):
 
 # ── EXPORT ───────────────────────────────────────────────────────────────
 
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
 from services.export_service import generate_ot_csv, generate_ot_pdf_html, generate_ot_list_pdf_html
+from services.print_templates import CEVITAL_TEMPLATE
 from sqlalchemy import func, extract
+from html import escape as _esc
 
 
 # ── GET — Stats Archives ─────────────────────────────────────────────
@@ -849,6 +941,486 @@ def stats_archives(
     except Exception as e:
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Erreur serveur interne")
+
+
+# ── GET — Imprimer Liste OT (toute la liste, tous statuts) ────────────
+
+@router.get("/liste/imprimer", response_class=HTMLResponse)
+def imprimer_liste_ot(
+    id_pole:    int  | None = Query(None),
+    id_zone:    int  | None = Query(None),
+    id_equipe:  int  | None = Query(None),
+    statut:     str  | None = Query(None, description="Filtre statut (CREE, ASSIGNE, EN_COURS, TERMINE, VALIDE_CE, VALIDE_HSE, ARCHIVE). Vide ou TOUS = tout"),
+    type_ot:    str  | None = Query(None, description="Filtre type (CORRECTIF, PREVENTIF, PREDICTIF)"),
+    priorite:   str  | None = Query(None),
+    date_debut: date | None = Query(None),
+    date_fin:   date | None = Query(None),
+    groupement: str         = Query("statut", description="statut|zone|equipe|priorite|type|mois"),
+    db: Session = Depends(get_db),
+):
+    """
+    Génère une page HTML imprimable de TOUS les OT (peu importe le statut),
+    avec filtres optionnels et regroupement.
+    """
+    q = (
+        db.query(OrdreTravail)
+        .order_by(OrdreTravail.created_at.desc())
+    )
+
+    if id_pole:
+        q = q.filter(OrdreTravail.id_pole == id_pole)
+    if statut and statut.upper() not in ("TOUS", "ALL", ""):
+        try:
+            q = q.filter(OrdreTravail.statut == StatutOT(statut.upper()))
+        except ValueError:
+            pass
+    if type_ot and type_ot.upper() not in ("TOUS", "ALL", ""):
+        try:
+            q = q.filter(OrdreTravail.type_ot == TypeOT(type_ot.upper()))
+        except ValueError:
+            pass
+    if priorite and priorite.upper() not in ("TOUS", "ALL", ""):
+        try:
+            q = q.filter(OrdreTravail.priorite == PrioriteOT(priorite.upper()))
+        except ValueError:
+            pass
+    if date_debut:
+        q = q.filter(OrdreTravail.created_at >= date_debut)
+    if date_fin:
+        q = q.filter(OrdreTravail.created_at <= date_fin)
+
+    if id_zone:
+        q = q.join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement)\
+             .filter(Equipement.id_zone == id_zone)
+
+    if id_equipe:
+        q = q.join(Utilisateur, OrdreTravail.id_assigne == Utilisateur.id_user)\
+             .filter(Utilisateur.id_equipe == id_equipe)
+
+    ots = q.all()
+
+    equipements = {e.id_equipement: e for e in db.query(Equipement).all()}
+    zones       = {z.id_zone: z       for z in db.query(Zone).all()}
+    poles       = {p.id_pole: p       for p in db.query(Pole).all()}
+    users       = {u.id_user: u       for u in db.query(Utilisateur).all()}
+    equipes     = {e.id_equipe: e     for e in db.query(Equipe).all()}
+    interventions_par_ot: dict[int, Intervention] = {
+        i.id_ot: i for i in db.query(Intervention).all()
+    }
+    dis_par_id: dict[int, DemandeIntervention] = {
+        d.id_di: d for d in db.query(DemandeIntervention).all()
+    }
+
+    def _zone_of(ot: OrdreTravail) -> Zone | None:
+        eq = equipements.get(ot.id_equipement)
+        if eq and eq.id_zone:
+            return zones.get(eq.id_zone)
+        return None
+
+    def _equipe_of(ot: OrdreTravail) -> Equipe | None:
+        u = users.get(ot.id_assigne) if ot.id_assigne else None
+        if u and u.id_equipe:
+            return equipes.get(u.id_equipe)
+        return None
+
+    grouped: dict[str, list[OrdreTravail]] = {}
+    for ot in ots:
+        s = ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut or "—")
+        if groupement == "statut":
+            key = s
+        elif groupement == "zone":
+            z = _zone_of(ot)
+            key = z.nom_zone if z else "Sans zone"
+        elif groupement == "equipe":
+            e = _equipe_of(ot)
+            key = e.nom_equipe if e else "Non assigné à une équipe"
+        elif groupement == "priorite":
+            key = (ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—"))
+        elif groupement == "type":
+            key = (ot.type_ot.value if hasattr(ot.type_ot, "value") else str(ot.type_ot or "—"))
+        elif groupement == "mois":
+            key = ot.created_at.strftime("%Y-%m") if ot.created_at else "Sans date"
+        else:
+            key = "Tous"
+        grouped.setdefault(key, []).append(ot)
+
+    # Ordre d'affichage des statuts (si groupement=statut)
+    STATUT_ORDER = ["CREE", "ASSIGNE", "EN_COURS", "TERMINE", "VALIDE_CE", "VALIDE_HSE", "ARCHIVE", "REJETE"]
+    if groupement == "statut":
+        groupe_keys_ordered = [s for s in STATUT_ORDER if s in grouped]
+        groupe_keys_ordered += [k for k in sorted(grouped.keys()) if k not in groupe_keys_ordered]
+    else:
+        groupe_keys_ordered = sorted(grouped.keys())
+
+    sections_html = []
+    nb_total = len(ots)
+
+    for groupe_key in groupe_keys_ordered:
+        liste = grouped[groupe_key]
+        rows = []
+        for i, ot in enumerate(liste, 1):
+            equip       = equipements.get(ot.id_equipement)
+            zone        = _zone_of(ot)
+            equipe      = _equipe_of(ot)
+            interv      = interventions_par_ot.get(ot.id_ot)
+            assigne     = users.get(ot.id_assigne) if ot.id_assigne else None
+            methodiste  = users.get(ot.id_methodiste) if ot.id_methodiste else None
+            di          = dis_par_id.get(ot.id_di) if ot.id_di else None
+            pole        = poles.get(ot.id_pole) if ot.id_pole else None
+
+            composante_txt  = equip.description if equip else "—"
+            composante_code = equip.equipment_code if equip else "—"
+
+            machine_racine = "—"
+            if equip and equip.id_machine_racine:
+                racine_eq = equipements.get(equip.id_machine_racine)
+                if racine_eq:
+                    machine_racine = racine_eq.equipment_code
+
+            statut_v   = ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut or "")
+            priorite_v = ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—")
+            type_v     = ot.type_ot.value if hasattr(ot.type_ot, "value") else str(ot.type_ot or "—")
+
+            duree_str = "—"
+            if interv and interv.date_debut and interv.date_fin:
+                delta = interv.date_fin - interv.date_debut
+                mins = int(delta.total_seconds() // 60)
+                duree_str = f"{mins // 60}h{mins % 60:02d}"
+
+            rows.append(f"""
+              <tr>
+                <td class="num">{i:02d}</td>
+                <td class="mono nom">{_esc(ot.numero_ot or '—')}</td>
+                <td>{_esc(type_v)}</td>
+                <td><span class="priorite {priorite_v}">{_esc(priorite_v)}</span></td>
+                <td class="mono">{_esc(machine_racine)}</td>
+                <td>
+                  <div class="mono" style="font-size:7.5pt;">{_esc(composante_code)}</div>
+                  <div style="color:#6b7280;font-size:7.5pt;">{_esc(composante_txt[:50])}</div>
+                </td>
+                <td>{_esc(zone.nom_zone if zone else '—')}</td>
+                <td>{_esc(pole.nom_pole if pole else '—')}</td>
+                <td class="mono" style="font-size:7.5pt;">{_esc(di.numero_di if di else '—')}</td>
+                <td>{_esc((methodiste.prenom + ' ' + methodiste.nom) if methodiste else '—')}</td>
+                <td>{_esc((assigne.prenom + ' ' + assigne.nom) if assigne else '—')}</td>
+                <td>{_esc(equipe.nom_equipe if equipe else '—')}</td>
+                <td style="text-align:center;">{_esc(str(ot.date_prevue.date()) if ot.date_prevue else '—')}</td>
+                <td style="text-align:center;">{_esc(str(ot.created_at.date()) if ot.created_at else '—')}</td>
+                <td style="text-align:center;">{_esc(duree_str)}</td>
+                <td><span class="statut {statut_v}">{_esc(statut_v)}</span></td>
+              </tr>""")
+
+        sections_html.append(f"""
+          <section class="role-section">
+            <div class="role-header">
+              <h2>{_esc(groupe_key)}</h2>
+              <span class="badge">{len(liste)} OT</span>
+            </div>
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th class="num">#</th>
+                  <th>N° OT</th>
+                  <th>Type</th>
+                  <th>Priorité</th>
+                  <th>Machine</th>
+                  <th>Composante</th>
+                  <th>Zone</th>
+                  <th>Pôle</th>
+                  <th>N° DI</th>
+                  <th>Méthodiste</th>
+                  <th>Intervenant</th>
+                  <th>Équipe</th>
+                  <th>Date prévue</th>
+                  <th>Créé le</th>
+                  <th>Durée</th>
+                  <th>Statut</th>
+                </tr>
+              </thead>
+              <tbody>{''.join(rows)}</tbody>
+            </table>
+          </section>
+        """)
+
+    sections_str = '\n'.join(sections_html) if sections_html else (
+        '<p class="empty">Aucun OT pour les filtres sélectionnés.</p>'
+    )
+
+    pole_obj   = poles.get(id_pole)     if id_pole   else None
+    zone_obj   = zones.get(id_zone)     if id_zone   else None
+    equipe_obj = equipes.get(id_equipe) if id_equipe else None
+    filtres_str = []
+    if pole_obj:   filtres_str.append(f"Pôle {pole_obj.nom_pole}")
+    if zone_obj:   filtres_str.append(f"Zone {zone_obj.nom_zone}")
+    if equipe_obj: filtres_str.append(f"Équipe {equipe_obj.nom_equipe}")
+    if statut and statut.upper() not in ("TOUS", "ALL", ""):     filtres_str.append(f"Statut : {statut}")
+    if type_ot and type_ot.upper() not in ("TOUS", "ALL", ""):   filtres_str.append(f"Type : {type_ot}")
+    if priorite and priorite.upper() not in ("TOUS", "ALL", ""): filtres_str.append(f"Priorité : {priorite}")
+    if date_debut: filtres_str.append(f"du {date_debut}")
+    if date_fin:   filtres_str.append(f"au {date_fin}")
+    sous_titre_filtres = " · ".join(filtres_str) if filtres_str else "Tous OT confondus"
+
+    now = datetime.now()
+    GROUPEMENT_LABEL = {
+        "statut":   "statut",
+        "zone":     "zone",
+        "equipe":   "équipe",
+        "priorite": "priorité",
+        "type":     "type",
+        "mois":     "mois",
+    }
+
+    html = CEVITAL_TEMPLATE.format(
+        title="Liste des Ordres de Travail — CEVITAL Optima",
+        document_title="Registre des Ordres de Travail",
+        sous_titre=f"Système GMAO Optima · Regroupés par {GROUPEMENT_LABEL.get(groupement, groupement)} · {sous_titre_filtres}",
+        meta=(
+            f'<span><b>Date d\'édition :</b> {now.strftime("%d/%m/%Y à %H:%M")}</span>'
+            f'<span><b>Nombre d\'OT :</b> {nb_total}</span>'
+        ),
+        content=sections_str,
+        signatures='''
+          <div class="signature-box">
+            <div class="label">Le Méthodiste</div>
+            <div class="sub">Cachet & signature</div>
+          </div>
+          <div class="signature-box">
+            <div class="label">Le Chef de Maintenance</div>
+            <div class="sub">Cachet & signature</div>
+          </div>
+          <div class="signature-box">
+            <div class="label">Le Responsable HSE</div>
+            <div class="sub">Cachet & signature</div>
+          </div>
+        ''',
+    )
+
+    return HTMLResponse(content=html)
+
+
+# ── GET — Imprimer Archives (HTML stylé CEVITAL) ─────────────────────
+
+@router.get("/archives/imprimer", response_class=HTMLResponse)
+def imprimer_archives_ot(
+    id_pole:    int  | None = Query(None),
+    id_zone:    int  | None = Query(None),
+    id_equipe:  int  | None = Query(None),
+    date_debut: date | None = Query(None),
+    date_fin:   date | None = Query(None),
+    groupement: str         = Query("zone", description="zone|equipe|priorite|mois"),
+    db: Session = Depends(get_db),
+):
+    """
+    Génère une page HTML imprimable des OT archivés, avec filtres optionnels
+    et groupement par zone, équipe, priorité ou mois.
+    """
+    # ── Requête principale ───────────────────────────────────────────────
+    q = (
+        db.query(OrdreTravail)
+        .filter(OrdreTravail.statut == StatutOT.ARCHIVE)
+        .order_by(OrdreTravail.date_archive.desc())
+    )
+
+    if id_pole:
+        q = q.filter(OrdreTravail.id_pole == id_pole)
+    if date_debut:
+        q = q.filter(OrdreTravail.date_archive >= date_debut)
+    if date_fin:
+        q = q.filter(OrdreTravail.date_archive <= date_fin)
+
+    # Filtre par zone : via Equipement.id_zone
+    if id_zone:
+        q = q.join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement)\
+             .filter(Equipement.id_zone == id_zone)
+
+    # Filtre par équipe : via assigne.id_equipe (uniquement OT assignés à un membre)
+    if id_equipe:
+        q = q.join(Utilisateur, OrdreTravail.id_assigne == Utilisateur.id_user)\
+             .filter(Utilisateur.id_equipe == id_equipe)
+
+    ots = q.all()
+
+    # ── Préchargement des entités liées ─────────────────────────────────
+    equipements = {e.id_equipement: e for e in db.query(Equipement).all()}
+    zones       = {z.id_zone: z       for z in db.query(Zone).all()}
+    poles       = {p.id_pole: p       for p in db.query(Pole).all()}
+    users       = {u.id_user: u       for u in db.query(Utilisateur).all()}
+    equipes     = {e.id_equipe: e     for e in db.query(Equipe).all()}
+    interventions_par_ot: dict[int, Intervention] = {
+        i.id_ot: i for i in db.query(Intervention).all()
+    }
+    dis_par_id: dict[int, DemandeIntervention] = {
+        d.id_di: d for d in db.query(DemandeIntervention).all()
+    }
+
+    def _zone_of(ot: OrdreTravail) -> Zone | None:
+        eq = equipements.get(ot.id_equipement)
+        if eq and eq.id_zone:
+            return zones.get(eq.id_zone)
+        return None
+
+    def _equipe_of(ot: OrdreTravail) -> Equipe | None:
+        u = users.get(ot.id_assigne) if ot.id_assigne else None
+        if u and u.id_equipe:
+            return equipes.get(u.id_equipe)
+        return None
+
+    # ── Groupement ──────────────────────────────────────────────────────
+    grouped: dict[str, list[OrdreTravail]] = {}
+    for ot in ots:
+        if groupement == "zone":
+            z = _zone_of(ot)
+            key = z.nom_zone if z else "Sans zone"
+        elif groupement == "equipe":
+            e = _equipe_of(ot)
+            key = e.nom_equipe if e else "Non assigné à une équipe"
+        elif groupement == "priorite":
+            key = (ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—"))
+        elif groupement == "mois":
+            key = ot.date_archive.strftime("%Y-%m") if ot.date_archive else "Sans date"
+        else:
+            key = "Tous"
+        grouped.setdefault(key, []).append(ot)
+
+    # ── Rendu HTML ──────────────────────────────────────────────────────
+    sections_html = []
+    nb_total = len(ots)
+
+    for groupe_key in sorted(grouped.keys()):
+        liste = grouped[groupe_key]
+        rows = []
+        for i, ot in enumerate(liste, 1):
+            equip       = equipements.get(ot.id_equipement)
+            zone        = _zone_of(ot)
+            equipe      = _equipe_of(ot)
+            interv      = interventions_par_ot.get(ot.id_ot)
+            assigne     = users.get(ot.id_assigne) if ot.id_assigne else None
+            methodiste  = users.get(ot.id_methodiste) if ot.id_methodiste else None
+            di          = dis_par_id.get(ot.id_di) if ot.id_di else None
+            pole        = poles.get(ot.id_pole) if ot.id_pole else None
+
+            # Composante = description équipement
+            composante_txt = equip.description if equip else "—"
+            composante_code = equip.equipment_code if equip else "—"
+
+            # Machine racine
+            machine_racine = "—"
+            if equip and equip.id_machine_racine:
+                racine_eq = equipements.get(equip.id_machine_racine)
+                if racine_eq:
+                    machine_racine = racine_eq.equipment_code
+
+            statut    = ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut or "")
+            priorite  = ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—")
+            type_ot   = ot.type_ot.value if hasattr(ot.type_ot, "value") else str(ot.type_ot or "—")
+
+            # Durée intervention
+            duree_str = "—"
+            if interv and interv.date_debut and interv.date_fin:
+                delta = interv.date_fin - interv.date_debut
+                mins = int(delta.total_seconds() // 60)
+                duree_str = f"{mins // 60}h{mins % 60:02d}"
+
+            rows.append(f"""
+              <tr>
+                <td class="num">{i:02d}</td>
+                <td class="mono nom">{_esc(ot.numero_ot or '—')}</td>
+                <td>{_esc(type_ot)}</td>
+                <td><span class="priorite {priorite}">{_esc(priorite)}</span></td>
+                <td class="mono">{_esc(machine_racine)}</td>
+                <td>
+                  <div class="mono" style="font-size:7.5pt;">{_esc(composante_code)}</div>
+                  <div style="color:#6b7280;font-size:7.5pt;">{_esc(composante_txt[:50])}</div>
+                </td>
+                <td>{_esc(zone.nom_zone if zone else '—')}</td>
+                <td>{_esc(pole.nom_pole if pole else '—')}</td>
+                <td class="mono" style="font-size:7.5pt;">{_esc(di.numero_di if di else '—')}</td>
+                <td>{_esc((methodiste.prenom + ' ' + methodiste.nom) if methodiste else '—')}</td>
+                <td>{_esc((assigne.prenom + ' ' + assigne.nom) if assigne else '—')}</td>
+                <td>{_esc(equipe.nom_equipe if equipe else '—')}</td>
+                <td style="text-align:center;">{_esc(str(ot.date_prevue.date()) if ot.date_prevue else '—')}</td>
+                <td style="text-align:center;">{_esc(str(ot.date_archive.date()) if ot.date_archive else '—')}</td>
+                <td style="text-align:center;">{_esc(duree_str)}</td>
+                <td><span class="statut {statut}">{_esc(statut)}</span></td>
+              </tr>""")
+
+        sections_html.append(f"""
+          <section class="role-section">
+            <div class="role-header">
+              <h2>{_esc(groupe_key)}</h2>
+              <span class="badge">{len(liste)} OT</span>
+            </div>
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th class="num">#</th>
+                  <th>N° OT</th>
+                  <th>Type</th>
+                  <th>Priorité</th>
+                  <th>Machine</th>
+                  <th>Composante</th>
+                  <th>Zone</th>
+                  <th>Pôle</th>
+                  <th>N° DI</th>
+                  <th>Méthodiste</th>
+                  <th>Intervenant</th>
+                  <th>Équipe</th>
+                  <th>Date prévue</th>
+                  <th>Archivé le</th>
+                  <th>Durée</th>
+                  <th>Statut</th>
+                </tr>
+              </thead>
+              <tbody>{''.join(rows)}</tbody>
+            </table>
+          </section>
+        """)
+
+    sections_str = '\n'.join(sections_html) if sections_html else (
+        '<p class="empty">Aucun OT archivé pour les filtres sélectionnés.</p>'
+    )
+
+    # Filtres dans le titre
+    pole_obj   = poles.get(id_pole)   if id_pole   else None
+    zone_obj   = zones.get(id_zone)   if id_zone   else None
+    equipe_obj = equipes.get(id_equipe) if id_equipe else None
+    filtres_str = []
+    if pole_obj:   filtres_str.append(f"Pôle {pole_obj.nom_pole}")
+    if zone_obj:   filtres_str.append(f"Zone {zone_obj.nom_zone}")
+    if equipe_obj: filtres_str.append(f"Équipe {equipe_obj.nom_equipe}")
+    if date_debut: filtres_str.append(f"du {date_debut}")
+    if date_fin:   filtres_str.append(f"au {date_fin}")
+    sous_titre_filtres = " · ".join(filtres_str) if filtres_str else "Toutes archives confondues"
+
+    now = datetime.now()
+    GROUPEMENT_LABEL = {"zone": "zone", "equipe": "équipe", "priorite": "priorité", "mois": "mois"}
+
+    html = CEVITAL_TEMPLATE.format(
+        title="Archives des Ordres de Travail — CEVITAL Optima",
+        document_title="Registre des Ordres de Travail Archivés",
+        sous_titre=f"Système GMAO Optima · Regroupés par {GROUPEMENT_LABEL.get(groupement, groupement)} · {sous_titre_filtres}",
+        meta=(
+            f'<span><b>Date d\'édition :</b> {now.strftime("%d/%m/%Y à %H:%M")}</span>'
+            f'<span><b>Nombre d\'OT archivés :</b> {nb_total}</span>'
+        ),
+        content=sections_str,
+        signatures='''
+          <div class="signature-box">
+            <div class="label">Le Chef de Maintenance</div>
+            <div class="sub">Cachet & signature</div>
+          </div>
+          <div class="signature-box">
+            <div class="label">Le Responsable HSE</div>
+            <div class="sub">Cachet & signature</div>
+          </div>
+          <div class="signature-box">
+            <div class="label">Le Directeur d'Usine</div>
+            <div class="sub">Cachet & signature</div>
+          </div>
+        ''',
+    )
+
+    return HTMLResponse(content=html)
 
 
 # ── GET — Export Archives CSV ────────────────────────────────────────

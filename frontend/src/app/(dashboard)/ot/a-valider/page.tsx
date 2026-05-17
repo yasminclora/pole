@@ -5,7 +5,8 @@ import { useSelector } from 'react-redux'
 import { RootState } from '@/store/store'
 import { otService } from '@/services/otService'
 import { interventionService } from '@/services/interventionService'
-import { Loader2, Search, X, RefreshCw, Eye, CheckCircle, AlertTriangle, ClipboardCheck, FileText, Download, FileSpreadsheet, Archive } from 'lucide-react'
+import { Loader2, Search, X, RefreshCw, Eye, CheckCircle, AlertTriangle, ClipboardCheck, FileText, Download, FileSpreadsheet, Archive, XCircle, MessageSquare, RotateCcw } from 'lucide-react'
+import api from '@/services/axiosInstance'
 
 interface OT {
   id_ot: number
@@ -35,6 +36,7 @@ const STATUT_CFG: Record<string, { label: string; cls: string; dot: string }> = 
   ASSIGNE: { label: 'Assigné', cls: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
   EN_COURS: { label: 'En cours', cls: 'bg-purple-50 text-purple-700 border-purple-200', dot: 'bg-purple-500' },
   TERMINE: { label: 'Soumis', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  REWORK: { label: 'À reprendre', cls: 'bg-orange-50 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
   VALIDE_CE: { label: 'Validé CE', cls: 'bg-teal-50 text-teal-700 border-teal-200', dot: 'bg-teal-500' },
   VALIDE_HSE: { label: 'Validé HSE', cls: 'bg-green-50 text-green-700 border-green-200', dot: 'bg-green-500' },
   ARCHIVE: { label: 'Archivé', cls: 'bg-gray-50 text-gray-400 border-gray-200', dot: 'bg-gray-400' },
@@ -89,6 +91,9 @@ export default function AValiderOTPage() {
   useEffect(() => { charger() }, [charger])
 
   const [validant, setValidant] = useState<number | null>(null)
+  const [rejectModal, setRejectModal] = useState<{ id_ot: number; numero_ot: string; role: 'CHEF_EQUIPE' | 'HSE' } | null>(null)
+  const [motifRejet, setMotifRejet] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   const handleValider = async (id_ot: number, roleValidation: string) => {
     if (validant) return
@@ -100,6 +105,40 @@ export default function AValiderOTPage() {
       alert(err.response?.data?.detail || 'Erreur lors de la validation')
     } finally {
       setValidant(null)
+    }
+  }
+
+  const handleRejeter = async () => {
+    if (!rejectModal || !motifRejet.trim()) {
+      alert('Le motif de rejet est obligatoire')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await api.post(`/interventions/ot/${rejectModal.id_ot}/rejeter`, {
+        id_validateur: idUser,
+        id_rejecteur : idUser,
+        role         : rejectModal.role,
+        motif_rejet  : motifRejet.trim(),
+      })
+      setRejectModal(null)
+      setMotifRejet('')
+      charger()
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Erreur lors du rejet')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleRetransmettre = async (id_ot: number) => {
+    const commentaire = prompt('Commentaire à transmettre au mécanicien :')
+    if (!commentaire?.trim()) return
+    try {
+      await api.post(`/interventions/ot/${id_ot}/retransmettre`, { commentaire: commentaire.trim() })
+      charger()
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Erreur')
     }
   }
 
@@ -271,10 +310,16 @@ export default function AValiderOTPage() {
                       <td className="px-3 py-3"><UrgBadge v={ot.priorite}/></td>
                       <td className="px-3 py-3 text-xs text-gray-500">{fmtDate(ot.created_at)}</td>
                       <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => handleValider(ot.id_ot, 'HSE')}
-                          className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-bold hover:bg-green-600">
-                          {validant === ot.id_ot ? <Loader2 size={12} className="animate-spin"/> : 'Valider'}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => setRejectModal({ id_ot: ot.id_ot, numero_ot: ot.numero_ot, role: 'HSE' })}
+                            className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 inline-flex items-center gap-1">
+                            <XCircle size={12}/> Refuser
+                          </button>
+                          <button onClick={() => handleValider(ot.id_ot, 'HSE')}
+                            className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-bold hover:bg-green-600 inline-flex items-center gap-1">
+                            {validant === ot.id_ot ? <Loader2 size={12} className="animate-spin"/> : <><CheckCircle size={12}/> Valider</>}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -330,10 +375,16 @@ export default function AValiderOTPage() {
                       <td className="px-3 py-3"><UrgBadge v={ot.priorite}/></td>
                       <td className="px-3 py-3 text-xs text-gray-500">{fmtDate(ot.created_at)}</td>
                       <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => handleValider(ot.id_ot, '')}
-                          className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600">
-                          {validant === ot.id_ot ? <Loader2 size={12} className="animate-spin"/> : 'Valider'}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => setRejectModal({ id_ot: ot.id_ot, numero_ot: ot.numero_ot, role: 'CHEF_EQUIPE' })}
+                            className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 inline-flex items-center gap-1">
+                            <XCircle size={12}/> Refuser
+                          </button>
+                          <button onClick={() => handleValider(ot.id_ot, 'CHEF_EQUIPE')}
+                            className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 inline-flex items-center gap-1">
+                            {validant === ot.id_ot ? <Loader2 size={12} className="animate-spin"/> : <><CheckCircle size={12}/> Valider</>}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -470,6 +521,56 @@ export default function AValiderOTPage() {
           </div>
         )}
       </div>
+
+      {/* ─── Modal de rejet (CE ou HSE) ─── */}
+      {rejectModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg">
+            <div className="border-b px-6 py-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold flex items-center gap-2 text-red-700">
+                <XCircle /> Refuser l'OT {rejectModal.numero_ot}
+              </h3>
+              <button onClick={() => { setRejectModal(null); setMotifRejet('') }}
+                className="p-1 rounded hover:bg-gray-100"><X size={18}/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className={`p-4 rounded-xl border ${rejectModal.role === 'HSE' ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200'}`}>
+                <p className="text-sm flex items-start gap-2">
+                  <AlertTriangle size={16} className={rejectModal.role === 'HSE' ? 'text-orange-600 mt-0.5 shrink-0' : 'text-amber-600 mt-0.5 shrink-0'}/>
+                  <span>
+                    {rejectModal.role === 'HSE'
+                      ? "Le rejet HSE renvoie l'OT au chef d'équipe qui devra le corriger ou le retransmettre au mécanicien."
+                      : "Le rejet par le chef d'équipe renvoie l'OT au mécanicien pour qu'il corrige sa saisie."
+                    }
+                  </span>
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Motif du rejet <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={motifRejet}
+                  onChange={e => setMotifRejet(e.target.value)}
+                  rows={5}
+                  placeholder="Expliquez précisément ce qui pose problème pour que le mécanicien (ou le chef) puisse corriger..."
+                  className="w-full border border-gray-200 rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300"
+                />
+              </div>
+            </div>
+            <div className="border-t px-6 py-4 flex gap-3">
+              <button onClick={() => { setRejectModal(null); setMotifRejet('') }}
+                className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-medium">Annuler</button>
+              <button
+                onClick={handleRejeter}
+                disabled={submitting || !motifRejet.trim()}
+                className="flex-1 py-3 rounded-xl text-white font-bold bg-red-600 hover:bg-red-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                {submitting ? <Loader2 className="animate-spin" size={16}/> : <><MessageSquare size={16}/> Confirmer le rejet</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

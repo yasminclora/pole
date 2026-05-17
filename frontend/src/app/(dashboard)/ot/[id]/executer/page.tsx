@@ -19,8 +19,10 @@ import { useSelector } from 'react-redux'
 import {
   ArrowLeft, Play, Package, CheckCircle, Loader2,
   Search, Plus, ClipboardList, AlertCircle, Wrench, X,
+  AlertTriangle, Calendar, RotateCcw,
 } from 'lucide-react'
 
+import api                     from '@/services/axiosInstance'
 import { otService }           from '@/services/otService'
 import { interventionService } from '@/services/interventionService'
 import { stockService }        from '@/services/stockService'
@@ -93,16 +95,38 @@ export default function ExecuterOTPage() {
   const [observations,     setObservations]     = useState('')
   const [pieceRemplacee,   setPieceRemplacee]   = useState(false)
 
+  // État du verrou (calculé par le backend)
+  const [peutDemarrerInfo, setPeutDemarrerInfo] = useState<{
+    peut_demarrer: boolean
+    statut_ok    : boolean
+    date_ok      : boolean
+    pieces_ok    : boolean
+    raisons      : string[]
+    reservations : any[]
+  } | null>(null)
+
   // ── Chargement initial ─────────────────────────────────────────────────────
   const chargerOT = useCallback(async () => {
     try {
       setLoading(true)
       const data = await otService.getById(idOT)
       setOT(data)
+      // Préremplir feedback si déjà saisi
+      if (data?.intervention?.description_travail) setDescTravail(data.intervention.description_travail)
+      if (data?.intervention?.observations)        setObservations(data.intervention.observations)
     } catch {
       setError('Impossible de charger cet OT.')
     } finally {
       setLoading(false)
+    }
+  }, [idOT])
+
+  const chargerPeutDemarrer = useCallback(async () => {
+    try {
+      const res = await api.get(`/ot/${idOT}/peut-demarrer`)
+      setPeutDemarrerInfo(res.data)
+    } catch {
+      // silencieux
     }
   }, [idOT])
 
@@ -121,7 +145,13 @@ export default function ExecuterOTPage() {
   useEffect(() => {
     chargerOT()
     chargerReservations()
-  }, [chargerOT, chargerReservations])
+    chargerPeutDemarrer()
+  }, [chargerOT, chargerReservations, chargerPeutDemarrer])
+
+  // Re-fetch quand reservations changent
+  useEffect(() => {
+    chargerPeutDemarrer()
+  }, [reservations, chargerPeutDemarrer])
 
   // ── Recherche de piece ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -219,6 +249,27 @@ export default function ExecuterOTPage() {
     }
   }
 
+  const resoumettre = async () => {
+    if (!user || !descTravail.trim()) {
+      alert('Veuillez décrire le travail réalisé.')
+      return
+    }
+    if (!window.confirm('Confirmer la re-soumission ? Votre chef d\'équipe sera notifié pour re-valider.')) return
+    try {
+      setSoumettantFB(true)
+      await api.post(`/interventions/ot/${idOT}/resoumettre`, {
+        description_travail : descTravail.trim(),
+        observations        : observations.trim() || undefined,
+        type_travail        : ot.type_ot,
+      })
+      await chargerOT()
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Erreur lors de la re-soumission.')
+    } finally {
+      setSoumettantFB(false)
+    }
+  }
+
   // ── Rendu ──────────────────────────────────────────────────────────────────
 
   if (loading) return (
@@ -239,19 +290,15 @@ export default function ExecuterOTPage() {
 
   const estAssigne  = ot.statut === 'ASSIGNE'
   const estEnCours  = ot.statut === 'EN_COURS'
+  const estRework   = ot.statut === 'REWORK'
   const estTermine  = ['TERMINE', 'VALIDE_CE', 'VALIDE_HSE', 'ARCHIVE'].includes(ot.statut)
-  const peutAgir    = estAssigne || estEnCours
-  
-  // Vérifier si on peut démarrer (date_prevue atteinte)
-  const now = new Date()
-  const datePrevueObj = ot?.date_prevue ? new Date(ot.date_prevue) : null
-  // Si pas de date_prevue → grisé par défaut (doit être défini)
-  // Si date_prevue passée → actif
-  // Si date_prevue future → grisé
-  const peutDemarrer = datePrevueObj ? datePrevueObj <= now : false
-  
-  // Debug log
-  console.log('[Execute] date_prevue:', ot?.date_prevue, '| parsed:', datePrevueObj, '| now:', now, '| peutDemarrer:', peutDemarrer)
+  const peutAgir    = estAssigne || estEnCours || estRework
+
+  // Verrou : peut-on démarrer ?
+  // Backend = source de vérité. Tant qu'on n'a pas reçu sa réponse, on bloque.
+  const peutDemarrer       = peutDemarrerInfo?.peut_demarrer === true
+  const raisonsDeBlocage   = peutDemarrerInfo?.raisons ?? []
+  const datePrevueObj      = ot?.date_prevue ? new Date(ot.date_prevue) : null
 
   return (
     <div className="space-y-6 pb-6">
@@ -314,32 +361,84 @@ export default function ExecuterOTPage() {
         ))}
       </div>
 
+      {/* ── Banner REWORK ── */}
+      {estRework && ot.motif_rejet && (
+        <div className="bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-200 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+              <AlertTriangle size={22} className="text-red-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-red-800">Intervention à reprendre</p>
+              <p className="text-sm text-red-700 mt-0.5">
+                Votre intervention a été rejetée. Corrigez votre saisie ci-dessous puis re-soumettez.
+              </p>
+              <div className="mt-3 p-3 bg-white rounded-lg border border-red-200">
+                <p className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-1">Motif</p>
+                <p className="text-sm text-gray-800">{ot.motif_rejet}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Bouton Démarrer (ASSIGNE) ── */}
       {estAssigne && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center shrink-0 mt-0.5">
-                <Play size={22} className="text-[#003B7A]" />
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4 flex-1">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                peutDemarrer ? 'bg-emerald-50' : 'bg-amber-50'
+              }`}>
+                <Play size={22} className={peutDemarrer ? 'text-emerald-600' : 'text-amber-600'} />
               </div>
-              <div>
-                <p className={`font-bold text-lg ${peutDemarrer ? 'text-gray-800' : 'text-gray-500'}`}>
-                  {peutDemarrer ? 'Prêt à commencer' : 'En attente de la date prévue'}
+              <div className="flex-1">
+                <p className={`font-bold text-lg ${peutDemarrer ? 'text-gray-800' : 'text-gray-700'}`}>
+                  {peutDemarrer ? 'Prêt à commencer' : 'Conditions non remplies'}
                 </p>
-                <p className={`text-sm mt-0.5 ${peutDemarrer ? 'text-gray-500' : 'text-gray-400'}`}>
-                  {peutDemarrer 
-                    ? 'Vous pouvez démarrer l\'intervention quand vous êtes prêt'
-                    : ot.date_prevue 
-                      ? `Disponible à partir du ${datePrevueObj?.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
-                      : 'Veuillez contacter le méthodiste pour définir la date prévue.'
-                  }
-                </p>
+
+                {/* Checklist de prérequis */}
+                <div className="mt-3 space-y-1.5 text-sm">
+                  {peutDemarrerInfo && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        {peutDemarrerInfo.date_ok ? (
+                          <CheckCircle size={16} className="text-emerald-600 shrink-0" />
+                        ) : (
+                          <Calendar size={16} className="text-amber-600 shrink-0" />
+                        )}
+                        <span className={peutDemarrerInfo.date_ok ? 'text-gray-700' : 'text-amber-700 font-medium'}>
+                          {peutDemarrerInfo.date_ok
+                            ? `Date prévue atteinte (${datePrevueObj?.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long' })})`
+                            : `OT prévu le ${datePrevueObj?.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`
+                          }
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {peutDemarrerInfo.pieces_ok ? (
+                          <CheckCircle size={16} className="text-emerald-600 shrink-0" />
+                        ) : (
+                          <Package size={16} className="text-amber-600 shrink-0" />
+                        )}
+                        <span className={peutDemarrerInfo.pieces_ok ? 'text-gray-700' : 'text-amber-700 font-medium'}>
+                          {peutDemarrerInfo.pieces_ok
+                            ? (peutDemarrerInfo.reservations?.length > 0
+                                ? `${peutDemarrerInfo.reservations.length} pièce(s) livrée(s)`
+                                : 'Aucune pièce nécessaire')
+                            : `${peutDemarrerInfo.reservations?.filter((r:any) => !r.livree).length ?? 0} pièce(s) en attente de livraison`
+                          }
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             <button
               onClick={() => setShowModalDemarrer(true)}
               disabled={!peutDemarrer}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm transition-all shadow-sm ${
+              title={!peutDemarrer ? raisonsDeBlocage.join(' • ') : ''}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm transition-all shadow-sm shrink-0 ${
                 peutDemarrer
                   ? 'bg-[#003B7A] hover:bg-[#002a5a] text-white hover:shadow-md'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -533,12 +632,12 @@ export default function ExecuterOTPage() {
         </div>
       )}
 
-      {/* ── Compte rendu (EN_COURS) ── */}
-      {estEnCours && (
+      {/* ── Compte rendu (EN_COURS ou REWORK) ── */}
+      {(estEnCours || estRework) && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
           <h2 className="font-bold text-gray-800 flex items-center gap-2">
-            <ClipboardList size={18} className="text-[#003B7A]" />
-            Compte rendu d&apos;intervention
+            {estRework ? <RotateCcw size={18} className="text-orange-600" /> : <ClipboardList size={18} className="text-[#003B7A]" />}
+            {estRework ? 'Reprise de l\'intervention' : 'Compte rendu d\'intervention'}
           </h2>
 
           <div>
@@ -564,10 +663,15 @@ export default function ExecuterOTPage() {
               className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003B7A]/20 focus:border-[#003B7A] focus:bg-white transition-all resize-none" />
           </div>
 
-          <button onClick={terminerOT} disabled={soumettantFB || !descTravail.trim()}
-            className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[#003B7A] hover:bg-[#002a5a] text-white rounded-xl font-bold text-sm transition disabled:opacity-50 shadow-sm">
-            {soumettantFB ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-            Terminer et soumettre pour validation
+          <button
+            onClick={estRework ? resoumettre : terminerOT}
+            disabled={soumettantFB || !descTravail.trim()}
+            className={`w-full flex items-center justify-center gap-2 px-5 py-3 text-white rounded-xl font-bold text-sm transition disabled:opacity-50 shadow-sm ${
+              estRework ? 'bg-orange-600 hover:bg-orange-700' : 'bg-[#003B7A] hover:bg-[#002a5a]'
+            }`}
+          >
+            {soumettantFB ? <Loader2 size={16} className="animate-spin" /> : (estRework ? <RotateCcw size={16} /> : <CheckCircle size={16} />)}
+            {estRework ? 'Re-soumettre la saisie corrigée' : 'Terminer et soumettre pour validation'}
           </button>
         </div>
       )}

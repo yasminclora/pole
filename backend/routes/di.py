@@ -224,7 +224,9 @@ async def creer_di(data: dict, db: Session = Depends(get_db)):
                     "equipement": equip.equipment_code,
                     "urgence": data.get("urgence", "NORMALE"),
                 }
-                await manager.send_personal_message(user_id=target_user_id, message=message)
+                message["titre"]   = f"Nouvelle DI {di.numero_di}"
+                message["message"] = f"DI ({message['urgence']}) sur {equip.equipment_code} : {data['description_panne'][:80]}"
+                await manager.send_personal_message(user_id=target_user_id, message=message, db=db)
                 logger.info(f"[DI] Notif envoyÃ©e Ã  user_id={target_user_id}")
                 
                 # Si pas envoyÃ©, tester broadcast
@@ -421,9 +423,14 @@ async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
                 user_id=int(di.id_declarant),
                 message={
                     "type"     : "DI_VALIDEE",
+                    "id_di"    : di.id_di,
+                    "id_ot"    : ot.id_ot,
                     "numero_di": di.numero_di,
                     "numero_ot": ot.numero_ot,
-                }
+                    "titre"    : "Votre DI a été validée",
+                    "message"  : f"Votre DI {di.numero_di} a été validée et transformée en OT {ot.numero_ot}.",
+                },
+                db=db
             )
         except Exception as e:
             print(f"[DI] Erreur notif declarant: {e}")
@@ -464,17 +471,18 @@ async def rejeter_di(id_di: int, data: dict, db: Session = Depends(get_db)):
 
         db.commit(); db.refresh(di)
 
-        # Notification au mecanicien qui a cree la DI
+        # Notification au déclarant (BUGFIX : champ est id_declarant, pas id_createur)
         from services.notification_service import manager as _manager
         notif = {
-            "type"       : "DI_REJETEE",
-            "id_di"      : di.id_di,
-            "numero_di"  : di.numero_di,
-            "message"    : f"Votre DI a ete rejetee: {di.numero_di}",
-            "motif"      : di.motif_rejet,
+            "type"     : "DI_REJETEE",
+            "id_di"    : di.id_di,
+            "numero_di": di.numero_di,
+            "titre"    : "Votre DI a été rejetée",
+            "message"  : f"Votre DI {di.numero_di} a été rejetée. Motif : {di.motif_rejet}",
+            "motif"    : di.motif_rejet,
         }
-        if di.id_createur:
-            await _manager.send_personal_message(user_id=di.id_createur, message=notif)
+        if di.id_declarant:
+            await _manager.send_personal_message(user_id=int(di.id_declarant), message=notif, db=db)
 
         return di_to_dict(di, db)
 

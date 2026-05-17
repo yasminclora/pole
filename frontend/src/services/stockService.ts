@@ -25,6 +25,12 @@ export const stockService = {
     return res.data
   },
 
+  // Alias getByCode (utilisé par la page détail)
+  getByCode: async (code_stock: string) => {
+    const res = await api.get(`/stock/${code_stock}`)
+    return res.data
+  },
+
   // ----- RESERVATIONS -----
 
   // List reservations with filters

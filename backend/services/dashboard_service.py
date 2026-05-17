@@ -92,7 +92,7 @@ def get_ot_by_zone(db: Session, id_pole: Optional[int] = None):
 
 def get_ot_by_pole(db: Session):
     from models.pole import Pole
-    q = db.query(
+    rows = db.query(
         Pole.nom_pole,
         func.count(OrdreTravail.id_ot).label('count'),
     ).join(Pole, OrdreTravail.id_pole == Pole.id_pole
@@ -125,49 +125,40 @@ def get_intervention_by_status(db: Session, id_pole: Optional[int] = None):
 
 
 def get_recent_activity(db: Session, id_pole: Optional[int] = None, limit: int = 10):
-    """Dernières activités (OT + DI) triées par created_at"""
-    from sqlalchemy import text as sa_text
+    """Dernières activités (OT + DI) triées par created_at — sans union SQL (plus simple et robuste)."""
+    q_ot = db.query(OrdreTravail).order_by(OrdreTravail.created_at.desc())
+    q_di = db.query(DemandeIntervention).order_by(DemandeIntervention.created_at.desc())
 
-    q_ot = db.query(
-        OrdreTravail.numero_ot.label('ref'),
-        sa_text("ordres_travail.type_ot::VARCHAR").label('sous_type'),
-        sa_text("ordres_travail.statut::VARCHAR").label('statut'),
-        OrdreTravail.created_at.label('date'),
-        sa_text("'OT'").label('type'),
-        OrdreTravail.id_ot.label('id'),
-    )
-    q_di = db.query(
-        DemandeIntervention.numero_di.label('ref'),
-        DemandeIntervention.urgence.label('sous_type'),
-        DemandeIntervention.statut.label('statut'),
-        DemandeIntervention.created_at.label('date'),
-        sa_text("'DI'").label('type'),
-        DemandeIntervention.id_di.label('id'),
-    )
-    q_di = db.query(
-        DemandeIntervention.numero_di.label('ref'),
-        DemandeIntervention.urgence.label('sous_type'),
-        DemandeIntervention.statut.label('statut'),
-        DemandeIntervention.created_at.label('date'),
-        sa_text(f"'DI'").label('type'),
-        DemandeIntervention.id_di.label('id'),
-    )
     if id_pole:
         q_ot = q_ot.filter(OrdreTravail.id_pole == id_pole)
         q_di = q_di.filter(DemandeIntervention.id_pole == id_pole)
 
-    union = q_ot.union(q_di).order_by(sa_text('date desc')).limit(limit).all()
-    return [
-        {
-            "ref": r.ref,
-            "type": r.type,
-            "sous_type": r.sous_type,
-            "statut": r.statut,
-            "date": str(r.date) if r.date else None,
-            "id": r.id,
-        }
-        for r in union
-    ]
+    ots = q_ot.limit(limit).all()
+    dis = q_di.limit(limit).all()
+
+    rows: list[dict] = []
+    for o in ots:
+        rows.append({
+            "ref":       o.numero_ot,
+            "type":      "OT",
+            "sous_type": (o.type_ot.value if hasattr(o.type_ot, "value") else str(o.type_ot)) if o.type_ot else None,
+            "statut":    (o.statut.value  if hasattr(o.statut,  "value") else str(o.statut))  if o.statut  else None,
+            "date":      str(o.created_at) if o.created_at else None,
+            "id":        o.id_ot,
+        })
+    for d in dis:
+        rows.append({
+            "ref":       d.numero_di,
+            "type":      "DI",
+            "sous_type": (d.urgence.value if hasattr(d.urgence, "value") else str(d.urgence)) if d.urgence else None,
+            "statut":    (d.statut.value  if hasattr(d.statut,  "value") else str(d.statut))  if d.statut  else None,
+            "date":      str(d.created_at) if d.created_at else None,
+            "id":        d.id_di,
+        })
+
+    # Tri global par date desc + limit
+    rows.sort(key=lambda x: x["date"] or "", reverse=True)
+    return rows[:limit]
 
 
 # ══════════════════════════════════════════════════════════════════════

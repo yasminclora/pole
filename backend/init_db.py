@@ -17,6 +17,9 @@ from models.intervention         import Intervention
 from models.stock                import PieceStock, ComposanteStock, ReservationPiece
 from models.prediction           import Prediction
 from models.historique_interventions import HistoriqueIntervention, TypeTravailHistorique
+from models.modele_ml          import ModeleML, TypeModeleEnum
+from models.prediction_run     import PredictionRun, PredictionResultat
+from models.notification       import Notification
 
 
 

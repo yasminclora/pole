@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Users, Building2,
   CalendarDays, UserCircle, Wrench,
   ClipboardList, AlertTriangle, Package, Factory,
-  TrendingUp,
+  TrendingUp, Brain,
 } from 'lucide-react'
 
 export type Role =
@@ -37,8 +37,20 @@ export const NAV_SECTIONS: NavSection[] = [
     icon        : TrendingUp,
     allowedRoles: ['ADMIN', 'METHODISTE'],
     items: [
-      { label: 'Maintenance prédictive', href: '/predictions',
+      { label: 'Prédictions ML', href: '/predictions',
         allowedRoles: ['ADMIN', 'METHODISTE'] },
+      { label: 'Dashboard prédictif', href: '/predictions/dashboard',
+        allowedRoles: ['ADMIN', 'METHODISTE'] },
+    ],
+  },
+
+  {
+    title       : 'Modèles ML',
+    icon        : Brain,
+    allowedRoles: ['ADMIN'],
+    items: [
+      { label: 'Gestion des modèles', href: '/admin/modeles-ml',
+        allowedRoles: ['ADMIN'] },
     ],
   },
 
@@ -167,11 +179,13 @@ export const NAV_SECTIONS: NavSection[] = [
     icon        : Package,
     allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN','TECHNICIEN','CHEF_EQUIPE'],
     items: [
-      { label: 'Stock et pieces', href: '/stock/pieces',
+      { label: 'Stock et pièces', href: '/stock/pieces',
         allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN','TECHNICIEN','CHEF_EQUIPE'] },
-      { label: 'Recherche piece par equipement', href: '/stock/recherche',
+      { label: 'Ajouter une pièce', href: '/stock/pieces/nouveau',
+        allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK'] },
+      { label: 'Recherche pièce par équipement', href: '/stock/recherche',
         allowedRoles: ['MECANICIEN','TECHNICIEN','CHEF_EQUIPE'] },
-      { label: 'Reservations',     href: '/stock/reservation',
+      { label: 'Réservations',     href: '/stock/reservation',
         allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK'] },
     ],
   },

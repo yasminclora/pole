@@ -314,7 +314,7 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
             db.add(archive)
 
         else:
-            # Chef équipe → notifie HSE
+            # CHEF_EQUIPE valide → notifie HSE
             intervention.statut_validation     = StatutValidation.VALIDE
             intervention.id_validateur_methode = data["id_validateur"]
             intervention.date_validation_met   = now
@@ -336,8 +336,20 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
                     "type"     : "OT_VALIDE_CE",
                     "id_ot"    : id_ot,
                     "numero_ot": ot.numero_ot,
+                    "titre"    : "Validation HSE requise",
                     "message"  : f"L'OT {ot.numero_ot} a été validé par le chef d'équipe. Votre validation HSE est requise.",
-                })
+                }, db=db)
+            # Notifier aussi le mécanicien que son OT a passé l'étape CE
+            if intervention.id_realisateur:
+                await _notif_manager.send_personal_message(
+                    user_id=intervention.id_realisateur,
+                    message={
+                        "type"     : "MON_OT_VALIDE_CE",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "titre"    : "OT validé par votre chef",
+                        "message"  : f"Votre intervention sur l'OT {ot.numero_ot} a été validée par le chef d'équipe.",
+                    }, db=db)
         elif role == "HSE":
             # HSE vient de valider → notifier le(s) Méthodiste(s) du pôle
             methodistes = db.query(Utilisateur).filter(
@@ -349,8 +361,32 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
                     "type"     : "OT_VALIDE_HSE",
                     "id_ot"    : id_ot,
                     "numero_ot": ot.numero_ot,
+                    "titre"    : "Archivage requis",
                     "message"  : f"L'OT {ot.numero_ot} a été validé par HSE. Vous pouvez l'archiver.",
-                })
+                }, db=db)
+            # Notifier aussi le mécanicien et le CE
+            if intervention.id_realisateur:
+                await _notif_manager.send_personal_message(
+                    user_id=intervention.id_realisateur,
+                    message={
+                        "type"     : "MON_OT_VALIDE_HSE",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "titre"    : "OT validé HSE",
+                        "message"  : f"Votre intervention {ot.numero_ot} est validée par HSE.",
+                    }, db=db)
+        elif role == "METHODISTE":
+            # Archivage → notifier réalisateur
+            if intervention.id_realisateur:
+                await _notif_manager.send_personal_message(
+                    user_id=intervention.id_realisateur,
+                    message={
+                        "type"     : "OT_ARCHIVE",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "titre"    : "OT clôturé et archivé",
+                        "message"  : f"Votre OT {ot.numero_ot} a été clôturé et archivé.",
+                    }, db=db)
 
         return intervention_to_dict(intervention, db)
 
@@ -362,7 +398,14 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
         raise HTTPException(status_code=500, detail="Erreur serveur interne")
 
 
-# ── POST — Rejeter intervention ───────────────────────────────────────
+# ── POST — Rejeter intervention (CE / HSE / METHODISTE) ───────────────
+#
+# La logique change selon le rôle du rejeter :
+#   role=CHEF_EQUIPE   → renvoie au mécanicien      → statut OT = REWORK
+#   role=HSE           → renvoie au chef d'équipe   → statut OT = TERMINE  (le CE doit re-valider/corriger)
+#   role=METHODISTE    → rejet définitif            → statut OT = REJETE
+#
+# Le mécanicien voit le commentaire dans la page d'exécution et peut re-soumettre.
 
 @router.post("/ot/{id_ot}/rejeter")
 async def rejeter_intervention(id_ot: int, data: dict, db: Session = Depends(get_db)):
@@ -377,30 +420,208 @@ async def rejeter_intervention(id_ot: int, data: dict, db: Session = Depends(get
             raise HTTPException(status_code=404, detail="OT introuvable")
 
         motif = data.get("motif_rejet", "").strip()
-        intervention.statut_validation = StatutValidation.REJETE
-        intervention.motif_rejet       = motif
-        ot.statut                      = StatutOT.REJETE
-        ot.motif_rejet                 = motif
-        ot.id_rejecteur                = data.get("id_rejecteur")
+        if not motif:
+            raise HTTPException(status_code=400, detail="Le motif de rejet est obligatoire")
+
+        role         = (data.get("role") or "CHEF_EQUIPE").upper()
+        id_rejecteur = data.get("id_rejecteur") or data.get("id_validateur")
+        now          = datetime.now()
+
+        # ── Mise à jour selon le rôle ─────────────────────────────────
+        intervention.motif_rejet = motif
+
+        if role == "CHEF_EQUIPE":
+            # CE rejette → OT redescend en REWORK (mécanicien doit re-saisir)
+            intervention.statut_validation = StatutValidation.REJETE
+            ot.statut       = StatutOT.REWORK
+            ot.motif_rejet  = motif
+            ot.id_rejecteur = id_rejecteur
+
+        elif role == "HSE":
+            # HSE rejette → OT redescend en TERMINE (CE doit re-valider/corriger)
+            intervention.statut_validation = StatutValidation.REJETE
+            ot.statut       = StatutOT.TERMINE
+            # On garde id_rejecteur=HSE pour traçabilité
+            ot.motif_rejet  = motif
+            ot.id_rejecteur = id_rejecteur
+
+        else:
+            # METHODISTE ou autre → rejet définitif
+            intervention.statut_validation = StatutValidation.REJETE
+            ot.statut       = StatutOT.REJETE
+            ot.motif_rejet  = motif
+            ot.id_rejecteur = id_rejecteur
 
         db.commit()
         db.refresh(intervention)
 
-        # ── Notification au maintenancier ───────────────────────────────
+        # ── Notifications selon le rôle qui rejette ──────────────────
+        if role == "CHEF_EQUIPE":
+            # Notifier le mécanicien : il doit re-saisir
+            if intervention.id_realisateur:
+                await _notif_manager.send_personal_message(
+                    user_id=intervention.id_realisateur,
+                    message={
+                        "type"     : "OT_REWORK",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "motif"    : motif,
+                        "titre"    : "Votre intervention a été rejetée",
+                        "message"  : f"OT {ot.numero_ot} rejeté par le chef d'équipe. Motif : {motif}",
+                    }, db=db)
+
+        elif role == "HSE":
+            # Notifier les chefs d'équipe du pôle : ils doivent corriger / retransmettre
+            chefs = db.query(Utilisateur).filter(
+                Utilisateur.role    == RoleEnum.CHEF_EQUIPE,
+                Utilisateur.id_pole == ot.id_pole,
+            ).all()
+            for chef in chefs:
+                await _notif_manager.send_personal_message(
+                    user_id=chef.id_user,
+                    message={
+                        "type"     : "OT_REJETE_HSE",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "motif"    : motif,
+                        "titre"    : "HSE a rejeté un OT",
+                        "message"  : f"HSE a rejeté l'OT {ot.numero_ot}. Motif : {motif}. Vous devez corriger ou retransmettre au mécanicien.",
+                    }, db=db)
+            # Notifier aussi le mécanicien (pour info)
+            if intervention.id_realisateur:
+                await _notif_manager.send_personal_message(
+                    user_id=intervention.id_realisateur,
+                    message={
+                        "type"     : "MON_OT_REJETE_HSE",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "motif"    : motif,
+                        "titre"    : "HSE a rejeté votre OT",
+                        "message"  : f"HSE a rejeté votre OT {ot.numero_ot}. Votre chef d'équipe va le traiter. Motif : {motif}",
+                    }, db=db)
+
+        else:
+            # Rejet définitif
+            if intervention.id_realisateur:
+                await _notif_manager.send_personal_message(
+                    user_id=intervention.id_realisateur,
+                    message={
+                        "type"     : "OT_REJETE_DEFINITIF",
+                        "id_ot"    : id_ot,
+                        "numero_ot": ot.numero_ot,
+                        "motif"    : motif,
+                        "titre"    : "OT rejeté définitivement",
+                        "message"  : f"OT {ot.numero_ot} rejeté définitivement. Motif : {motif}",
+                    }, db=db)
+
+        return intervention_to_dict(intervention, db)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Erreur serveur interne")
+
+
+# ── POST — Retransmettre au mécanicien (Chef équipe corrige rien et renvoie) ──
+#
+# Quand HSE rejette → OT.statut = TERMINE. Le CE a deux choix :
+#   1. Valider à nouveau (corriger en interne) → POST /interventions/ot/{id}/valider
+#   2. Retransmettre au mécanicien            → POST /interventions/ot/{id}/retransmettre
+
+@router.post("/ot/{id_ot}/retransmettre")
+async def retransmettre_au_mecanicien(id_ot: int, data: dict, db: Session = Depends(get_db)):
+    try:
+        intervention = db.query(Intervention).filter(Intervention.id_ot == id_ot).first()
+        if not intervention:
+            raise HTTPException(status_code=404, detail="Intervention introuvable")
+        ot = db.get(OrdreTravail, id_ot)
+        if not ot:
+            raise HTTPException(status_code=404, detail="OT introuvable")
+
+        commentaire = data.get("commentaire", "").strip()
+        if not commentaire:
+            raise HTTPException(status_code=400, detail="Un commentaire est obligatoire")
+
+        ot.statut      = StatutOT.REWORK
+        ot.motif_rejet = commentaire
+        intervention.motif_rejet       = commentaire
+        intervention.statut_validation = StatutValidation.REJETE
+
+        db.commit()
+
         if intervention.id_realisateur:
             await _notif_manager.send_personal_message(
                 user_id=intervention.id_realisateur,
                 message={
-                    "type"     : "OT_REJETE",
+                    "type"     : "OT_REWORK",
                     "id_ot"    : id_ot,
                     "numero_ot": ot.numero_ot,
-                    "motif"    : motif,
-                    "message"  : f"Votre OT {ot.numero_ot} a été rejeté. Motif: {motif}",
-                }
-            )
+                    "motif"    : commentaire,
+                    "titre"    : "Intervention à reprendre",
+                    "message"  : f"Le chef d'équipe vous demande de revoir l'OT {ot.numero_ot}. Commentaire : {commentaire}",
+                }, db=db)
 
         return intervention_to_dict(intervention, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Erreur serveur interne")
 
+
+# ── POST — Re-soumettre l'intervention après REWORK ─────────────────
+#
+# Le mécanicien corrige sa saisie et resoumet → OT repasse en TERMINE → CE peut re-valider
+
+@router.post("/ot/{id_ot}/resoumettre")
+async def resoumettre_intervention(id_ot: int, data: dict, db: Session = Depends(get_db)):
+    try:
+        intervention = db.query(Intervention).filter(Intervention.id_ot == id_ot).first()
+        if not intervention:
+            raise HTTPException(status_code=404, detail="Intervention introuvable")
+        ot = db.get(OrdreTravail, id_ot)
+        if not ot:
+            raise HTTPException(status_code=404, detail="OT introuvable")
+        if ot.statut != StatutOT.REWORK:
+            raise HTTPException(status_code=400, detail=f"OT doit être en REWORK (actuel : {ot.statut})")
+
+        now = datetime.now()
+
+        # Mise à jour des champs feedback
+        intervention.description_travail = data.get("description_travail", intervention.description_travail).strip()
+        intervention.observations        = (data.get("observations") or "").strip() or None
+        if data.get("composante_remplacee"):
+            intervention.composante_remplacee = data["composante_remplacee"]
+        if data.get("type_travail"):
+            intervention.type_travail = data["type_travail"]
+        intervention.date_fin          = now
+        intervention.statut_validation = StatutValidation.EN_ATTENTE
+        intervention.date_soumission   = now
+
+        ot.statut          = StatutOT.TERMINE
+        ot.date_fin_reelle = now
+
+        db.commit()
+        db.refresh(intervention)
+
+        # Re-notifier les chefs d'équipe
+        chefs = db.query(Utilisateur).filter(
+            Utilisateur.role    == RoleEnum.CHEF_EQUIPE,
+            Utilisateur.id_pole == ot.id_pole,
+        ).all()
+        for chef in chefs:
+            await _notif_manager.send_personal_message(user_id=chef.id_user, message={
+                "type"     : "OT_RESOUMIS",
+                "id_ot"    : id_ot,
+                "numero_ot": ot.numero_ot,
+                "titre"    : "Intervention re-soumise",
+                "message"  : f"L'OT {ot.numero_ot} a été corrigé et re-soumis. À re-valider.",
+            }, db=db)
+
+        return intervention_to_dict(intervention, db)
     except HTTPException:
         raise
     except Exception as e:

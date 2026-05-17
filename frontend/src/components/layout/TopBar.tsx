@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useRouter } from 'next/navigation'
 import { RootState } from '@/store/store'
 import { logout } from '@/store/slices/authSlice'
-import { Sun, Moon, Bell, User, LogOut, ChevronDown, X, Search, Loader2 } from 'lucide-react'
+import { Bell, User, LogOut, ChevronDown, X, Search, Loader2, Users as UsersIcon } from 'lucide-react'
 import { useGlobalNotifications } from '@/hooks/useGlobalNotifications'
 import { otService } from '@/services/otService'
 import { diService } from '@/services/diService'
@@ -28,12 +28,10 @@ interface Notif {
   link?   : string
 }
 
-interface TopBarProps {
-  darkMode   : boolean
-  toggleDark : () => void
-}
+// Rôles qui sont rattachés à une équipe (et non à un pôle directement)
+const ROLES_EQUIPE = new Set(['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE'])
 
-export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
+export default function TopBar() {
   const dispatch = useDispatch()
   const router   = useRouter()
   const user     = useSelector((s: RootState) => s.auth.user)
@@ -203,44 +201,40 @@ export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
       {/* Droite - Actions */}
       <div className="flex items-center gap-2 md:gap-3">
 
-        {/* Badge Pôle */}
-        {user?.nom_pole && (
-          <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl
-                              bg-blue-50 dark:bg-blue-900/20
-                              border border-blue-200 dark:border-blue-800">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-600"/>
-            <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-              {user.nom_pole}
-            </span>
-          </div>
-        )}
+        {/* Badge Pôle (rôles managériaux) ou Équipe (rôles terrain) */}
+        {(() => {
+          const showEquipe = user?.role && ROLES_EQUIPE.has(user.role)
+          const label = showEquipe ? user?.nom_equipe : user?.nom_pole
+          if (!label) return null
+          return (
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl
+                                bg-blue-50 border border-blue-200">
+              {showEquipe
+                ? <UsersIcon size={11} className="text-blue-700" />
+                : <div className="w-1.5 h-1.5 rounded-full bg-blue-600"/>}
+              <span className="text-xs font-medium text-blue-700">
+                {showEquipe ? `Équipe ${label}` : label}
+              </span>
+            </div>
+          )
+        })()}
 
         {/* Date + Heure */}
         <div className="hidden lg:flex items-center gap-2 text-[11px]
-                          text-gray-500 dark:text-gray-400
-                          bg-gray-50 dark:bg-gray-800
-                          border border-gray-200 dark:border-gray-700
+                          text-gray-500
+                          bg-gray-50
+                          border border-gray-200
                           rounded-xl px-3 py-1.5">
           <span>
             {now.toLocaleDateString('fr-FR', {
               weekday: 'short', day: '2-digit', month: 'short'
             })}
           </span>
-          <span className="text-gray-300 dark:text-gray-600">·</span>
-          <span className="text-blue-600 dark:text-blue-400 font-mono font-medium">
+          <span className="text-gray-300">·</span>
+          <span className="text-blue-600 font-mono font-medium">
             {now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
-
-        {/* Dark mode */}
-        <button onClick={toggleDark}
-          className="w-8 h-8 rounded-xl flex items-center justify-center
-                     bg-gray-50 dark:bg-gray-800
-                     border border-gray-200 dark:border-gray-700
-                     text-gray-500 dark:text-gray-400
-                     hover:text-gray-900 dark:hover:text-white transition-all">
-          {darkMode ? <Sun size={15}/> : <Moon size={15}/>}
-        </button>
 
         {/* Notifications */}
         <div className="relative">
@@ -358,17 +352,23 @@ export default function TopBar({ darkMode, toggleDark }: TopBarProps) {
                     {initiales}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
                       {user?.prenom} {user?.nom}
                     </p>
                     <p className="text-xs text-gray-400">
                       {ROLE_LABELS[user?.role ?? ''] ?? user?.role}
                     </p>
-                    {user?.nom_pole && (
-                      <p className="text-xs text-blue-500 mt-0.5">
-                        {user.nom_pole}
-                      </p>
-                    )}
+                    {(() => {
+                      const showEquipe = user?.role && ROLES_EQUIPE.has(user.role)
+                      const label = showEquipe ? user?.nom_equipe : user?.nom_pole
+                      if (!label) return null
+                      return (
+                        <p className="text-xs text-blue-500 mt-0.5 flex items-center gap-1">
+                          {showEquipe && <UsersIcon size={10} />}
+                          {showEquipe ? `Équipe ${label}` : label}
+                        </p>
+                      )
+                    })()}
                   </div>
                 </div>
               </div>

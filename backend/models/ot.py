@@ -31,10 +31,11 @@ class StatutOT(str, enum.Enum):
     ASSIGNE     = "ASSIGNE"     # assigné au mécanicien
     EN_COURS    = "EN_COURS"    # mécanicien a démarré
     TERMINE     = "TERMINE"     # feedback soumis
+    REWORK      = "REWORK"      # rejet CE/HSE → mécanicien doit re-saisir
     VALIDE_CE   = "VALIDE_CE"   # validé chef équipe
     VALIDE_HSE  = "VALIDE_HSE"  # validé HSE
     ARCHIVE     = "ARCHIVE"     # archivé méthodiste
-    REJETE      = "REJETE"      # rejeté → retour mécanicien
+    REJETE      = "REJETE"      # rejeté définitivement
 
 
 class OrdreTravail(Base):

@@ -66,7 +66,11 @@ def require_roles(*roles: str):
         Depends(require_roles("ADMIN", "METHODISTE"))
     """
     def _check(current_user: dict = Depends(get_current_user)) -> dict:
-        if current_user["role"] not in roles:
+        # Normaliser le rôle : le JWT peut contenir "RoleEnum.ADMIN" (str d'un Enum)
+        # ou directement "ADMIN" — on accepte les deux formats.
+        raw_role = current_user.get("role") or ""
+        user_role = raw_role.split(".")[-1] if "." in raw_role else raw_role
+        if user_role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Accès refusé. Rôle requis : {', '.join(roles)}.",

@@ -4,8 +4,9 @@ import { useRouter } from 'next/navigation'
 import { useSelector } from 'react-redux'
 import { RootState } from '@/store/store'
 import { otService } from '@/services/otService'
-import { Loader2, Search, X, RefreshCw, Eye, ClipboardList, UserPlus } from 'lucide-react'
+import { Loader2, Search, X, RefreshCw, Eye, ClipboardList, UserPlus, Printer, MapPin, Users as UsersIcon, Filter, Calendar } from 'lucide-react'
 import AssignModal from '@/components/AssignModal'
+import api from '@/services/axiosInstance'
 
 interface OT {
   id_ot: number
@@ -97,6 +98,36 @@ export default function ListeOTPage() {
     charger()
   }
 
+  // ── Impression ─────────────────────────────────────────────────────
+  const [showPrintModal, setShowPrintModal] = useState(false)
+  const [printGroupement, setPrintGroupement] = useState<'statut' | 'zone' | 'equipe' | 'priorite' | 'type' | 'mois'>('statut')
+  const [printIncludeFiltre, setPrintIncludeFiltre] = useState(true)   // applique le filtre statut courant
+  const [printing, setPrinting] = useState(false)
+
+  const handleImprimer = async () => {
+    setPrinting(true)
+    try {
+      const params: any = { id_pole: idPole, groupement: printGroupement }
+      if (printIncludeFiltre && filtre !== 'TOUS') {
+        params.statut = filtre
+      }
+      const res = await api.get('/ot/liste/imprimer', { params, responseType: 'text' })
+      const win = window.open('', '_blank')
+      if (!win) {
+        alert("Impossible d'ouvrir la fenêtre d'impression. Vérifiez le bloqueur de pop-ups.")
+        return
+      }
+      win.document.open()
+      win.document.write(res.data as any)
+      win.document.close()
+      setShowPrintModal(false)
+    } catch (err: any) {
+      alert(`Erreur impression : ${err?.response?.data?.detail ?? err.message}`)
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(k); setSortDir('asc') }
@@ -133,7 +164,7 @@ export default function ListeOTPage() {
         <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"/>
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"/>
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-[#003B7A]/20 rounded-full blur-3xl"/>
-        
+
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-5">
             <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/20">
@@ -155,12 +186,12 @@ export default function ListeOTPage() {
             </div>
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Rechercher par N° OT, équipement, assigné..."
-              className="w-full pl-12 pr-10 py-3 text-sm border-2 border-gray-100 rounded-xl 
-                bg-gray-50 text-gray-800 placeholder-gray-400 
-                focus:outline-none focus:border-[#003B7A] focus:bg-white 
+              className="w-full pl-12 pr-10 py-3 text-sm border-2 border-gray-100 rounded-xl
+                bg-gray-50 text-gray-800 placeholder-gray-400
+                focus:outline-none focus:border-[#003B7A] focus:bg-white
                 focus:ring-4 focus:ring-[#003B7A]/10 transition-all duration-200"/>
             {search && (
-              <button onClick={() => setSearch('')} 
+              <button onClick={() => setSearch('')}
                 className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-red-500 transition-colors">
                 <X size={18}/>
               </button>
@@ -184,11 +215,17 @@ export default function ListeOTPage() {
             </svg>
           </div>
 
-          <button onClick={charger} 
-            className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-gray-200 
-              text-gray-600 text-sm font-semibold hover:border-[#003B7A] hover:text-[#003B7A] 
+          <button onClick={charger}
+            className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-gray-200
+              text-gray-600 text-sm font-semibold hover:border-[#003B7A] hover:text-[#003B7A]
               hover:bg-blue-50 transition-all duration-200">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''}/>Actualiser
+          </button>
+
+          <button onClick={() => setShowPrintModal(true)}
+            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#003B7A] text-white text-sm font-bold
+              hover:bg-[#002a5a] transition-all duration-200 shadow-sm">
+            <Printer size={16}/>Imprimer
           </button>
         </div>
       </div>
@@ -263,14 +300,14 @@ export default function ListeOTPage() {
                         {!ot.assigne && (role === 'ADMIN' || role === 'METHODISTE') && (
                           <button
                             onClick={(e) => openAssignModal(ot, e)}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold 
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold
                               bg-[#00A651] text-white hover:bg-[#008f44] transition-all shadow-sm"
                           >
                             <UserPlus size={14} />Assigner
                           </button>
                         )}
                         <button onClick={() => router.push(`/ot/${ot.id_ot}`)}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold 
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold
                             bg-[#003B7A] text-white hover:bg-[#002a5a] transition-all shadow-sm hover:shadow-md">
                           <Eye size={14}/>Détail
                         </button>
@@ -301,6 +338,84 @@ export default function ListeOTPage() {
         idPole={idPole}
         onAssignSuccess={handleAssignSuccess}
       />
+
+      {/* ── Modal Impression Liste OT ───────────────────────────── */}
+      {showPrintModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="bg-gradient-to-r from-[#003B7A] to-[#002a5a] text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Printer size={22}/>
+                <div>
+                  <h3 className="font-bold text-lg">Imprimer la liste des OT</h3>
+                  <p className="text-xs text-white/80">Document CEVITAL prêt à imprimer</p>
+                </div>
+              </div>
+              <button onClick={() => setShowPrintModal(false)} className="p-1 hover:bg-white/20 rounded">
+                <X size={20}/>
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
+                <p className="font-semibold mb-1">Périmètre :</p>
+                <ul className="space-y-0.5 text-blue-700">
+                  <li>• Pôle : {authUser?.nom_pole ?? '—'}</li>
+                  <li>• Statut filtré : <strong>{filtre === 'TOUS' ? 'Tous' : (STATUT_CFG[filtre]?.label ?? filtre)}</strong></li>
+                </ul>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox"
+                  checked={printIncludeFiltre}
+                  onChange={e => setPrintIncludeFiltre(e.target.checked)}
+                  className="rounded text-[#003B7A]"/>
+                Appliquer le filtre statut courant
+              </label>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+                  Grouper les OT par :
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: 'statut',   label: 'Statut',   icon: <Filter size={14}/> },
+                    { key: 'zone',     label: 'Zone',     icon: <MapPin size={14}/> },
+                    { key: 'equipe',   label: 'Équipe',   icon: <UsersIcon size={14}/> },
+                    { key: 'priorite', label: 'Priorité', icon: <Filter size={14}/> },
+                    { key: 'type',     label: 'Type',     icon: <ClipboardList size={14}/> },
+                    { key: 'mois',     label: 'Mois',     icon: <Calendar size={14}/> },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setPrintGroupement(opt.key)}
+                      className={`flex items-center gap-1.5 px-2 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${
+                        printGroupement === opt.key
+                          ? 'border-[#003B7A] bg-blue-50 text-[#003B7A]'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {opt.icon} {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+                <button onClick={() => setShowPrintModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
+                  Annuler
+                </button>
+                <button onClick={handleImprimer} disabled={printing}
+                  className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-[#003B7A] to-[#002a5a] text-white rounded-lg font-semibold shadow disabled:opacity-50">
+                  {printing && <Loader2 size={14} className="animate-spin"/>}
+                  {printing ? 'Génération…' : 'Générer le document'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -12,6 +12,10 @@ from models.historique_interventions import (
     HistoriqueIntervention,
     TypeTravailHistorique,
 )
+from services.ml_inference import (
+    predict_rul_for_component,
+    has_active_model,
+)
 
 
 def _get_ref_date(db: Session) -> date:
@@ -92,7 +96,7 @@ def get_machines_critiques(db: Session, pole: Optional[str] = None, limit: int =
 
 
 # ── COMPOSANTES AVEC RUL ────────────────────────────────────────────────
-def get_composantes_avec_rul(db: Session, pole: Optional[str]=None, search: Optional[str]=None, rul_max: Optional[int]=None, model: str="SIMULATION") -> list:
+def get_composantes_avec_rul(db: Session, pole: Optional[str]=None, search: Optional[str]=None, rul_max: Optional[int]=None, model: str="AUTO") -> list:
     ref_date = _get_ref_date(db)
 
     q = db.query(
@@ -125,10 +129,21 @@ def get_composantes_avec_rul(db: Session, pole: Optional[str]=None, search: Opti
         HistoriqueIntervention.action_entity,
     ).having(func.count() >= 2).all()
 
+    # Détermine si on utilise le vrai modèle ML ou la simulation
+    use_ml = (model != "SIMULATION") and has_active_model(db)
+
     results = []
     for r in rows:
-        mtbf     = _calc_mtbf(r.premiere_date, r.derniere_date, r.nb_pannes)
-        rul_data = _calculate_rul(mtbf, r.derniere_date, ref_date, r.equipment_code, r.nb_pannes)
+        mtbf = _calc_mtbf(r.premiere_date, r.derniere_date, r.nb_pannes)
+
+        if use_ml:
+            rul_data = predict_rul_for_component(db, r.equipment_code, r.equipment_level or 3)
+            if rul_data is None:
+                # Composant pas dans le mapping → fallback simulation
+                rul_data = _calculate_rul(mtbf, r.derniere_date, ref_date, r.equipment_code, r.nb_pannes)
+        else:
+            rul_data = _calculate_rul(mtbf, r.derniere_date, ref_date, r.equipment_code, r.nb_pannes)
+
         if rul_max is not None and rul_data["rul_jours"] > rul_max:
             continue
         results.append({
@@ -142,6 +157,7 @@ def get_composantes_avec_rul(db: Session, pole: Optional[str]=None, search: Opti
             "mtbf_jours":            round(mtbf, 1),
             "derniere_intervention": str(r.derniere_date) if r.derniere_date else None,
             "cout_total":            round(float(r.cout_total or 0), 2),
+            "source_prediction":     "ML" if use_ml and rul_data.get("confiance_pct") else "SIMULATION",
             **rul_data,
         })
 

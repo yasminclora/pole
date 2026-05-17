@@ -210,3 +210,100 @@ def route_recent(
     db: Session = Depends(get_db)
 ):
     return get_recent_activity(db, id_pole=id_pole, limit=limit)
+
+
+@router.get("/live/predictions-summary")
+def route_predictions_summary(
+    id_pole: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Résumé du dernier run de prédiction ML pour le dashboard.
+
+    Retourne :
+        last_run: { id_run, launched_at, statut, nb_critiques, ... }
+        top_critiques: [ ... 5 composants RUL le plus bas (CRITIQUE/URGENT) ]
+        nb_alertes_stock: int  (composants critiques avec stock ABSENT/FAIBLE)
+    """
+    from models.prediction_run  import PredictionRun, PredictionResultat, StatutRun
+    from models.pole            import Pole
+    from sqlalchemy             import and_, or_
+
+    # Filtre par nom_pole si id_pole donné
+    pole_name = None
+    if id_pole:
+        p = db.get(Pole, id_pole)
+        pole_name = p.nom_pole if p else None
+
+    q = db.query(PredictionRun).filter(PredictionRun.statut == StatutRun.TERMINE)
+    if pole_name:
+        q = q.filter(or_(PredictionRun.pole == pole_name, PredictionRun.pole.is_(None)))
+    last_run = q.order_by(PredictionRun.launched_at.desc()).first()
+
+    if not last_run:
+        return {
+            "last_run":          None,
+            "top_critiques":     [],
+            "nb_alertes_stock":  0,
+        }
+
+    # Top 5 critiques (par run + RUL ascendant) — seulement les derniers ref_date par composant
+    from sqlalchemy.orm import aliased
+    sub = (
+        db.query(
+            PredictionResultat.equipment_code,
+            func.max(PredictionResultat.ref_date).label("max_ref"),
+        )
+        .filter(PredictionResultat.id_run == last_run.id_run)
+        .group_by(PredictionResultat.equipment_code)
+        .subquery()
+    )
+    top = (
+        db.query(PredictionResultat)
+        .join(sub, and_(
+            PredictionResultat.equipment_code == sub.c.equipment_code,
+            (PredictionResultat.ref_date == sub.c.max_ref) | (sub.c.max_ref.is_(None) & PredictionResultat.ref_date.is_(None)),
+        ))
+        .filter(PredictionResultat.id_run == last_run.id_run)
+        .filter(PredictionResultat.statut.in_(["CRITIQUE", "URGENT"]))
+        .order_by(PredictionResultat.rul_jours.asc())
+        .limit(5)
+        .all()
+    )
+
+    nb_alertes_stock = (
+        db.query(func.count(PredictionResultat.id_resultat))
+        .filter(
+            PredictionResultat.id_run == last_run.id_run,
+            PredictionResultat.alerte_stock.in_(["ABSENT", "FAIBLE"]),
+        )
+        .scalar()
+    )
+
+    return {
+        "last_run": {
+            "id_run":          last_run.id_run,
+            "launched_at":     last_run.launched_at.isoformat() if last_run.launched_at else None,
+            "nb_composants":   last_run.nb_composants,
+            "nb_critiques":    last_run.nb_critiques,
+            "nb_urgents":      last_run.nb_urgents,
+            "nb_surveillance": last_run.nb_surveillance,
+            "nb_ok":           last_run.nb_ok,
+            "pole":            last_run.pole,
+        },
+        "top_critiques": [
+            {
+                "equipment_code": r.equipment_code,
+                "equipment_desc": r.equipment_desc,
+                "system_equipment": r.system_equipment,
+                "pole":           r.pole,
+                "zone":           r.zone,
+                "rul_jours":      r.rul_jours,
+                "statut":         r.statut.value if hasattr(r.statut, "value") else r.statut,
+                "alerte_stock":   r.alerte_stock,
+                "stock_disponible": r.stock_disponible,
+            }
+            for r in top
+        ],
+        "nb_alertes_stock": int(nb_alertes_stock or 0),
+    }
