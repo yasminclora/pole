@@ -69,7 +69,7 @@ def _build_zone_map(db: Session, codes: list[str]) -> dict[str, dict]:
         db.query(
             Equipement.equipment_code,
             Equipement.id_equipement,
-            Zone.nom_zone,
+            Zone.code_zone,
             Equipement.id_machine_racine,
         )
         .outerjoin(Zone, Equipement.id_zone == Zone.id_zone)
@@ -90,7 +90,7 @@ def _build_zone_map(db: Session, codes: list[str]) -> dict[str, dict]:
         machine_code, machine_desc = racine_map.get(r.id_machine_racine, (None, None))
         zone_map[r.equipment_code] = {
             "id_equipement"  : r.id_equipement,
-            "zone"           : r.nom_zone or "—",
+            "zone"           : r.code_zone or "—",
             "machine"        : machine_code or "—",
             "machine_desc"   : machine_desc or "",
         }
@@ -382,7 +382,7 @@ def get_filtres_meta(db: Session, current_user: dict) -> dict:
         poles = [pole_filter] if pole_filter else []
 
     # Zones et machines : limitées au pôle si non-admin
-    q_zone = db.query(distinct(Zone.nom_zone)).filter(Zone.nom_zone.isnot(None))
+    q_zone = db.query(distinct(Zone.code_zone)).filter(Zone.code_zone.isnot(None))
     if pole_filter:
         q_zone = q_zone.join(Pole, Zone.id_pole == Pole.id_pole).filter(Pole.nom_pole == pole_filter)
     zones = sorted({r[0] for r in q_zone.all() if r[0]})

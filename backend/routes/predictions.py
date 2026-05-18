@@ -16,6 +16,7 @@ from core.dependencies import get_current_user, require_roles
 from services.ml_inference import (
     run_full_prediction,
     run_monthly_predictions,
+    run_predictions_test_set,
     has_active_model,
     get_active_model_info,
     invalidate_cache,
@@ -58,35 +59,34 @@ def lancer_prediction(
     current_user: dict    = Depends(require_roles("METHODISTE", "ADMIN")),
 ):
     """
-    Lance le pipeline ML complet :
-    1. Charge le modèle actif (GRU ou LSTM selon body.model_type)
-    2. Prédit le RUL de tous les composants du comp_mapping
-    3. Vérifie le stock pour les composants CRITIQUE/URGENT
-    4. Sauvegarde dans prediction_runs + prediction_resultats
-    5. Retourne les résultats complets
+    Pipeline ML : 1 prédiction / composant test (33), model_type OBLIGATOIRE.
     """
-    # Si model_type fourni, activer ce modèle avant le run
-    if body.model_type:
-        _activer_modele_par_type(db, body.model_type.upper())
-        invalidate_cache()
+    # ── 1. Validation model_type ──────────────────────────────────────────
+    if not body.model_type:
+        raise HTTPException(400, detail="Vous devez choisir un modèle : 'LSTM' ou 'GRU'.")
+    model_type = body.model_type.upper()
+    if model_type not in ("LSTM", "GRU"):
+        raise HTTPException(400, detail=f"Type invalide : '{body.model_type}'. Utilisez 'LSTM' ou 'GRU'.")
 
-    if not has_active_model(db):
-        raise HTTPException(
-            status_code=400,
-            detail="Aucun modèle ML actif. Activez un modèle dans Administration > Modèles IA."
-        )
+    # ── 2. Activation modèle de ce type ───────────────────────────────────
+    try:
+        _activer_modele_par_type(db, model_type)
+        invalidate_cache()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, detail=f"Impossible d'activer le modèle {model_type} : {e}")
 
     modele_actif = db.query(ModeleML).filter(ModeleML.is_active.is_(True)).first()
     pole_user    = _get_pole_user(current_user, db)
-    id_pole_user = _get_id_pole_user(current_user, db)
+    id_pole_user = _get_id_pole_user(current_user, db) if "_get_id_pole_user" in globals() else None
 
-    # Crée le run en BDD (statut EN_COURS)
     run = PredictionRun(
-        id_modele  = modele_actif.id_modele,
-        id_user    = current_user["id_user"],
-        pole       = pole_user,
-        statut     = StatutRun.EN_COURS,
-        launched_at= datetime.now(),
+        id_modele   = modele_actif.id_modele,
+        id_user     = current_user["id_user"],
+        pole        = pole_user,
+        statut      = StatutRun.EN_COURS,
+        launched_at = datetime.now(),
     )
     db.add(run)
     db.commit()
@@ -95,133 +95,340 @@ def lancer_prediction(
     start_ms = time.time()
 
     try:
-        # ── Pipeline ML : prédictions MENSUELLES sur les 33 composants test ────
-        # Une prédiction tous les 30 jours sur toute la période historique,
-        # filtrée par pôle pour les méthodistes.
-        prediction_data = run_monthly_predictions(
+        # ── 3. Pipeline ML : 1 pred par composant test ────────────────────
+        prediction_data = run_predictions_test_set(
             db,
-            freq_days        = 30,
-            test_codes_only  = True,
-            pole_filter      = pole_user,
-            id_pole_filter   = id_pole_user,    # priorité à la FK
+            model_type     = model_type,
+            pole_filter    = pole_user,
+            id_pole_filter = id_pole_user,
+            scope          = "test",
         )
-        preds_par_code = prediction_data["predictions_par_composant"]
 
-        # ── Enrichissement + sauvegarde de TOUTES les prédictions ────────────
-        dernieres_enrichies = []   # une entrée par composant (la dernière prédiction)
-        for code, preds_list in preds_par_code.items():
-            info       = _get_composant_info(db, code)
-            stock_info = _check_stock(db, code)     # dict ou None
-            stock_qty  = stock_info["total_quantite"] if stock_info else None
+        # Rollback défensif : repartir d'une transaction propre après le pipeline ML
+        # (run_predictions_test_set fait des SELECTs qui peuvent laisser un état douteux)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+        # ── 4. Préchargement OTs prédictifs (1 requête) ───────────────────
+        from models.ot import OrdreTravail, TypeOT
+        from models.equipement import Equipement
+        codes_run = [pred["equipment_code"] for pred in prediction_data["resultats"]]
+        eq_map = {
+            eq.equipment_code: eq.id_equipement
+            for eq in db.query(Equipement).filter(Equipement.equipment_code.in_(codes_run)).all()
+        }
+        ots_by_id_eq: dict[int, list] = {}
+        if eq_map:
+            ot_rows = (
+                db.query(OrdreTravail)
+                .filter(
+                    OrdreTravail.id_equipement.in_(list(eq_map.values())),
+                    OrdreTravail.type_ot == TypeOT.PREDICTIF,
+                )
+                .order_by(OrdreTravail.created_at.desc())
+                .all()
+            )
+            for ot in ot_rows:
+                ots_by_id_eq.setdefault(ot.id_equipement, []).append(ot)
+
+        # ── 5. PASS 1 : enrichir TOUS les résultats (SELECTs seulement, pas d'INSERT) ──
+        # On construit la donnée à retourner au frontend EN PREMIER.
+        # Le tableau s'affichera même si les INSERT en BDD échouent.
+        resultats_enrichis = []
+        rows_to_insert    = []   # rangées à insérer en BDD au second passage
+
+        for pred in prediction_data["resultats"]:
+            code        = pred["equipment_code"]
+            info        = _get_composant_info(db, code)
+            stock_info  = _check_stock(db, code)
+            stock_qty   = stock_info["total_quantite"] if stock_info else None
             alerte_glob = _alerte_stock_from_dict(stock_info)
 
-            for p in preds_list:
-                db.add(PredictionResultat(
-                    id_run            = run.id_run,
-                    ref_date          = date.fromisoformat(p["ref_date"]),
-                    equipment_code    = code,
-                    equipment_desc    = info.get("description"),
-                    system_equipment  = info.get("system_equipment"),
-                    pole              = info.get("pole"),
-                    zone              = info.get("zone"),
-                    comp_level        = info.get("comp_level"),
-                    rul_jours         = p["rul_jours"],
-                    statut            = StatutRUL(p["statut"]),
-                    date_panne_prevue = date.fromisoformat(p["date_panne_prevue"]) if p.get("date_panne_prevue") else None,
-                    confiance_pct     = p.get("confiance_pct"),
-                    source            = SourcePrediction.ML,
-                    stock_disponible  = stock_qty,
-                    alerte_stock      = alerte_glob,
-                ))
+            ref_d = date.fromisoformat(pred["ref_date_used"]) if pred.get("ref_date_used") else None
+            dpp   = date.fromisoformat(pred["date_panne_prevue"]) if pred.get("date_panne_prevue") else None
 
-            # Dernière prédiction (la plus récente) pour le live view
-            last = preds_list[-1]
-            dernieres_enrichies.append({
-                **last,
+            # Tronquer pour respecter limites varchar
+            desc_str = (info.get("description") or None)
+            if desc_str and len(desc_str) > 255:  desc_str = desc_str[:255]
+            sys_str  = (info.get("system_equipment") or None)
+            if sys_str and len(sys_str) > 100:    sys_str  = sys_str[:100]
+            pole_str = (info.get("pole") or None)
+            if pole_str and len(pole_str) > 100:  pole_str = pole_str[:100]
+            zone_str = (info.get("zone") or None)
+            if zone_str and len(zone_str) > 200:  zone_str = zone_str[:200]
+
+            # OT prédictif existant : si UN OT prédictif existe pour ce composant → considéré comme créé
+            ot_existant_match = None
+            id_eq = eq_map.get(code)
+            if id_eq and id_eq in ots_by_id_eq and ots_by_id_eq[id_eq]:
+                ot = ots_by_id_eq[id_eq][0]   # le plus récent (déjà trié desc)
+                ot_existant_match = {
+                    "id_ot":       ot.id_ot,
+                    "numero_ot":   ot.numero_ot,
+                    "statut":      ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut),
+                    "date_prevue": str(ot.date_prevue.date()) if ot.date_prevue else None,
+                }
+
+            resultats_enrichis.append({
+                **pred,
                 **info,
-                "equipment_code":   code,
-                "stock_disponible": stock_qty,
-                "alerte_stock":     alerte_glob,
+                "equipment_code":        code,
+                "stock":                 stock_info,
+                "stock_disponible":      stock_qty,
+                "alerte_stock":          alerte_glob,
+                "ot_predictif_existant": ot_existant_match,
             })
+
+            rows_to_insert.append({
+                "id_run":            run.id_run,
+                "ref_date":          ref_d,
+                "equipment_code":    code,
+                "equipment_desc":    desc_str,
+                "system_equipment":  sys_str,
+                "pole":              pole_str,
+                "zone":              zone_str,
+                "comp_level":        pred.get("comp_level") or info.get("comp_level"),
+                "rul_jours":         pred["rul_jours"],
+                "statut":            StatutRUL(pred["statut"]),
+                "date_panne_prevue": dpp,
+                "confiance_pct":     pred.get("confiance_pct"),
+                "source":            SourcePrediction.ML,
+                "stock_disponible":  stock_qty,
+                "alerte_stock":      alerte_glob,
+            })
+
+        # ── PASS 2 : insérer en BDD (séparé des SELECTs pour éviter autoflush bug) ──
+        nb_save_errors = 0
+        for row_data in rows_to_insert:
+            try:
+                db.add(PredictionResultat(**row_data))
+                db.commit()
+            except Exception as iter_err:
+                db.rollback()
+                nb_save_errors += 1
+                print(f"[SAVE ERROR] {row_data['equipment_code']}: {type(iter_err).__name__}: {iter_err}", flush=True)
 
         duree_ms = int((time.time() - start_ms) * 1000)
 
-        # Mise à jour du run (stats = sur les DERNIÈRES prédictions par composant)
+        # Refetch run après les commits intermédiaires
+        run = db.get(PredictionRun, run.id_run)
         run.statut          = StatutRun.TERMINE
         run.nb_composants   = prediction_data["nb_total"]
         run.nb_critiques    = prediction_data["nb_critiques"]
         run.nb_urgents      = prediction_data["nb_urgents"]
-        run.nb_surveillance = prediction_data["nb_surveillance"]
+        run.nb_surveillance = 0
         run.nb_ok           = prediction_data["nb_ok"]
         run.duree_ms        = duree_ms
         run.finished_at     = datetime.now()
         db.commit()
 
         return {
-            "id_run":           run.id_run,
-            "statut":           "TERMINE",
-            "duree_ms":         duree_ms,
-            "nb_composants":    prediction_data["nb_total"],
-            "nb_predictions":   prediction_data["nb_predictions_total"],
-            "nb_critiques":     prediction_data["nb_critiques"],
-            "nb_urgents":       prediction_data["nb_urgents"],
-            "nb_surveillance":  prediction_data["nb_surveillance"],
-            "nb_ok":            prediction_data["nb_ok"],
-            "ref_date_latest":  prediction_data["ref_date_latest"],
-            "date_min":         prediction_data["date_min"],
-            "date_max":         prediction_data["date_max"],
-            "freq_days":        prediction_data["freq_days"],
-            "test_codes_source": prediction_data["test_codes_source"],
-            "model_info":       prediction_data["model_info"],
-            "resultats":        dernieres_enrichies,
-            "alertes_stock":    [r for r in dernieres_enrichies if r.get("alerte_stock") in ("FAIBLE", "ABSENT")],
+            "id_run":             run.id_run,
+            "statut":             "TERMINE",
+            "duree_ms":           duree_ms,
+            "model_type":         model_type,
+            "model_version":      modele_actif.version,
+            "metrics":            prediction_data["metrics"],
+            "nb_composants":      prediction_data["nb_total"],
+            "nb_sans_prediction": prediction_data["nb_sans_prediction"],
+            "nb_critiques":       prediction_data["nb_critiques"],
+            "nb_urgents":         prediction_data["nb_urgents"],
+            "nb_ok":              prediction_data["nb_ok"],
+            "ref_date_global":    prediction_data["ref_date_global"],
+            "scope":              prediction_data["scope"],
+            "resultats":          resultats_enrichis,
+            "alertes_stock":      [r for r in resultats_enrichis if r.get("alerte_stock") in ("FAIBLE", "ABSENT")],
         }
 
     except Exception as e:
         tb = traceback.format_exc()
         print(f"\n{'='*60}\n[PREDICTION ERROR]\n{tb}\n{'='*60}\n", flush=True)
-        run.statut          = StatutRun.ERREUR
-        run.erreur_message  = f"{type(e).__name__}: {e}"
-        run.finished_at     = datetime.now()
-        db.commit()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur prédiction : {type(e).__name__} — {e}",
-        )
+        try:
+            db.rollback()
+            run = db.get(PredictionRun, run.id_run)
+            if run:
+                run.statut         = StatutRun.ERREUR
+                run.erreur_message = f"{type(e).__name__}: {e}"
+                run.finished_at    = datetime.now()
+                db.commit()
+        except Exception:
+            pass
+        raise HTTPException(500, detail=f"Erreur prédiction : {type(e).__name__} — {e}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  GET /predictions/historique
 # ════════════════════════════════════════════════════════════════════════════
 
-@router.get("/historique", response_model=List[PredictionRunSummary])
+@router.get("/historique")
 def historique_runs(
-    limit:        int     = Query(20, ge=1, le=100),
+    limit:        int     = Query(50, ge=1, le=200),
+    model_type:   Optional[str] = Query(None, description="LSTM, GRU ou None"),
     db:           Session = Depends(get_db),
     current_user: dict    = Depends(get_current_user),
 ):
-    """Liste des runs passés (filtrés par pôle pour méthodiste)."""
-    q = db.query(PredictionRun).order_by(PredictionRun.launched_at.desc())
+    """
+    Liste des runs passés enrichis avec :
+      - model_type (LSTM/GRU)
+      - model_version
+      - filtrage par pôle (METHODISTE) et par type modèle
+    """
+    q = (
+        db.query(PredictionRun, ModeleML)
+        .join(ModeleML, ModeleML.id_modele == PredictionRun.id_modele)
+        .order_by(PredictionRun.launched_at.desc())
+    )
+
     pole = _get_pole_user(current_user, db)
     if pole:
         q = q.filter(PredictionRun.pole == pole)
-    return q.limit(limit).all()
+    if model_type and model_type.upper() in ("LSTM", "GRU"):
+        q = q.filter(ModeleML.type_modele == model_type.upper())
+
+    rows = q.limit(limit).all()
+
+    # Mapping nom_pole → code_pole (pour afficher le CODE)
+    from models.pole import Pole
+    pole_codes = {p.nom_pole: p.code_pole for p in db.query(Pole).all() if p.code_pole}
+
+    result = []
+    for run, modele in rows:
+        result.append({
+            "id_run":          run.id_run,
+            "id_modele":       run.id_modele,
+            "model_type":      modele.type_modele.value if hasattr(modele.type_modele, "value") else str(modele.type_modele),
+            "model_version":   modele.version,
+            "pole":            run.pole,
+            "pole_code":       pole_codes.get(run.pole, run.pole),
+            "statut":          run.statut.value if hasattr(run.statut, "value") else str(run.statut),
+            "nb_composants":   run.nb_composants,
+            "nb_critiques":    run.nb_critiques,
+            "nb_urgents":      run.nb_urgents,
+            "nb_surveillance": run.nb_surveillance,
+            "nb_ok":           run.nb_ok,
+            "duree_ms":        run.duree_ms,
+            "launched_at":     run.launched_at.isoformat() if run.launched_at else None,
+            "finished_at":     run.finished_at.isoformat() if run.finished_at else None,
+        })
+    return result
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  GET /predictions/runs/{id_run}
 # ════════════════════════════════════════════════════════════════════════════
 
-@router.get("/runs/{id_run}", response_model=PredictionRunRead)
+@router.get("/runs/{id_run}")
 def detail_run(
     id_run:       int,
     db:           Session = Depends(get_db),
     current_user: dict    = Depends(get_current_user),
 ):
+    """
+    Détail d'un run enrichi à la volée :
+      - infos modèle (type, version)
+      - pour chaque resultat : zone (depuis Equipement), ot_predictif_existant
+    """
+    from models.equipement import Equipement
+    from models.zone        import Zone
+    from models.ot          import OrdreTravail, TypeOT
+    from models.pole        import Pole
+
     run = db.get(PredictionRun, id_run)
     if not run:
         raise HTTPException(status_code=404, detail="Run introuvable.")
-    return run
+
+    modele = db.get(ModeleML, run.id_modele)
+
+    # Mapping pole nom → code
+    pole_codes = {p.nom_pole: p.code_pole for p in db.query(Pole).all() if p.code_pole}
+
+    # Codes uniques du run
+    codes = list({r.equipment_code for r in run.resultats if r.equipment_code})
+
+    # Zone code par equipment_code
+    code_to_zone: dict[str, str] = {}
+    if codes:
+        rows = (
+            db.query(Equipement.equipment_code, Zone.code_zone)
+            .join(Zone, Zone.id_zone == Equipement.id_zone)
+            .filter(Equipement.equipment_code.in_(codes))
+            .all()
+        )
+        code_to_zone = {ec: cz for ec, cz in rows if cz}
+
+    # OTs prédictifs par equipment_code (1 requête pour tous)
+    ots_par_code: dict[str, dict] = {}
+    if codes:
+        eq_rows = (
+            db.query(Equipement.id_equipement, Equipement.equipment_code)
+            .filter(Equipement.equipment_code.in_(codes))
+            .all()
+        )
+        id_to_code = {eid: c for eid, c in eq_rows}
+        if id_to_code:
+            ot_rows = (
+                db.query(OrdreTravail)
+                .filter(
+                    OrdreTravail.id_equipement.in_(list(id_to_code.keys())),
+                    OrdreTravail.type_ot == TypeOT.PREDICTIF,
+                )
+                .order_by(OrdreTravail.created_at.desc())
+                .all()
+            )
+            for ot in ot_rows:
+                code = id_to_code.get(ot.id_equipement)
+                if not code or code in ots_par_code:
+                    continue   # on garde le plus récent uniquement (1er rencontré)
+                ots_par_code[code] = {
+                    "id_ot":       ot.id_ot,
+                    "numero_ot":   ot.numero_ot,
+                    "statut":      ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut),
+                    "date_prevue": str(ot.date_prevue.date()) if ot.date_prevue else None,
+                }
+
+    resultats = []
+    for r in run.resultats:
+        zone_eff = code_to_zone.get(r.equipment_code) or r.zone
+        resultats.append({
+            "id_resultat":       r.id_resultat,
+            "ref_date":          str(r.ref_date) if r.ref_date else None,
+            "derniere_panne":    str(r.ref_date) if r.ref_date else None,   # = ref_date pour le frontend
+            "equipment_code":    r.equipment_code,
+            "equipment_desc":    r.equipment_desc,
+            "system_equipment":  r.system_equipment,
+            "pole":              r.pole,
+            "zone":              zone_eff,
+            "comp_level":        r.comp_level,
+            "rul_jours":         r.rul_jours,
+            "statut":            r.statut.value if hasattr(r.statut, "value") else str(r.statut),
+            "date_panne_prevue": str(r.date_panne_prevue) if r.date_panne_prevue else None,
+            "confiance_pct":     r.confiance_pct,
+            "source":            r.source.value if hasattr(r.source, "value") else str(r.source),
+            "stock_disponible":  r.stock_disponible,
+            "alerte_stock":      r.alerte_stock,
+            "ot_predictif_existant": ots_par_code.get(r.equipment_code),
+        })
+
+    return {
+        "id_run":          run.id_run,
+        "id_modele":       run.id_modele,
+        "model_type":      modele.type_modele.value if (modele and hasattr(modele.type_modele, "value")) else (str(modele.type_modele) if modele else None),
+        "model_version":   modele.version if modele else None,
+        "pole":            run.pole,
+        "pole_code":       pole_codes.get(run.pole, run.pole),
+        "statut":          run.statut.value if hasattr(run.statut, "value") else str(run.statut),
+        "nb_composants":   run.nb_composants,
+        "nb_critiques":    run.nb_critiques,
+        "nb_urgents":      run.nb_urgents,
+        "nb_surveillance": run.nb_surveillance,
+        "nb_ok":           run.nb_ok,
+        "duree_ms":        run.duree_ms,
+        "launched_at":     run.launched_at.isoformat() if run.launched_at else None,
+        "finished_at":     run.finished_at.isoformat() if run.finished_at else None,
+        "resultats":       resultats,
+    }
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -288,20 +495,46 @@ def detail_composant(
     # ── RUL trend ────────────────────────────────────────────────────────
     rul_trend = get_rul_trend(db, equipment_code)
 
-    # ── DERNIÈRE prédiction uniquement (volontairement limité : voir spec UX) ─
-    # On affiche seulement la prédiction la plus récente pour éviter de
-    # noyer l'utilisateur dans des prédictions intermédiaires (potentiellement fausses).
-    hist_preds = (
+    # ── Prédictions historiques DÉDUPLIQUÉES par (date_panne_prevue, rul_jours) ──
+    all_hist_preds = (
         db.query(PredictionResultat)
         .filter(PredictionResultat.equipment_code == equipment_code)
-        .order_by(PredictionResultat.ref_date.desc().nullslast(),
-                  PredictionResultat.id_resultat.desc())
-        .limit(1)
+        .order_by(PredictionResultat.id_resultat.desc())
         .all()
     )
+    seen_keys = set()
+    hist_preds = []
+    for p in all_hist_preds:
+        st = p.statut.value if hasattr(p.statut, "value") else str(p.statut)
+        key = (p.date_panne_prevue.isoformat() if p.date_panne_prevue else None, p.rul_jours, st)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        hist_preds.append(p)
 
     # ── Stock disponible via les VRAIES relations Equipement→ComposanteStock→PieceStock
     stock_info = _check_stock(db, equipment_code)
+
+    # ── Hiérarchie complète via Equipement.id_parent récursif ───────────
+    hierarchie = _get_hierarchie_complete(db, equipment_code)
+
+    # ── Zone code via Equipement → Zone ─────────────────────────────────
+    zone_code = None
+    try:
+        from models.equipement import Equipement
+        from models.zone        import Zone
+        eq = db.query(Equipement).filter(Equipement.equipment_code == equipment_code).first()
+        if eq and eq.id_zone:
+            z = db.get(Zone, eq.id_zone)
+            if z:
+                zone_code = z.code_zone
+    except Exception:
+        try: db.rollback()
+        except Exception: pass
+
+    # ── OTs prédictifs + correctifs pour ce composant ───────────────────
+    ots_predictifs = _get_ots_predictifs(db, equipment_code)
+    ots_correctifs = _get_ots_correctifs(db, equipment_code)
 
     # ── Machine racine via Equipement.id_machine_racine (fallback historique) ────
     machine_racine_eq = _get_machine_racine(db, equipment_code)
@@ -340,8 +573,12 @@ def detail_composant(
         "description":      ref.equipment_description or "—",
         "system_equipment": ref.system_equipment or "—",
         "pole":             ref.action_entity or "—",
+        "zone_code":        zone_code,
         "comp_level":       ref.equipment_level,
         "machine_racine":   machine_racine,
+        "hierarchie":       hierarchie,
+        "ots_predictifs":   ots_predictifs,
+        "ots_correctifs":   ots_correctifs,
         "stock":            stock_info,
         "kpis": {
             "nb_pannes":    nb_pannes,
@@ -355,6 +592,7 @@ def detail_composant(
             "statut":            (last_pred.statut.value if hasattr(last_pred.statut, "value") else last_pred.statut) if last_pred else None,
             "date_panne_prevue": str(last_pred.date_panne_prevue) if last_pred and last_pred.date_panne_prevue else None,
             "ref_date":          str(last_pred.ref_date) if last_pred and last_pred.ref_date else None,
+            "derniere_panne":    str(last_pred.ref_date) if last_pred and last_pred.ref_date else None,   # = ref_date (= dernière panne du composant)
             "confiance_pct":     last_pred.confiance_pct     if last_pred else None,
         },
         "historique_pannes": [
@@ -744,7 +982,8 @@ def _get_composant_info(db: Session, equipment_code: str) -> dict:
             "zone":            None,
         }
 
-    # Enrichissement zone depuis Equipement
+    # Enrichissement zone depuis Equipement — DOIT rollback en cas d'erreur
+    # sinon la transaction PostgreSQL reste cassée pour tout le reste de la requête.
     try:
         from models.equipement import Equipement
         from models.zone       import Zone
@@ -756,9 +995,13 @@ def _get_composant_info(db: Session, equipment_code: str) -> dict:
         if equip and equip.id_zone:
             zone = db.get(Zone, equip.id_zone)
             if zone:
-                info["zone"] = zone.nom_zone
+                info["zone"] = zone.code_zone
     except Exception:
-        pass
+        # CRITIQUE : rollback obligatoire sinon InFailedSqlTransaction cascade
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     return info
 
@@ -853,6 +1096,11 @@ def _check_stock(db: Session, equipment_code: str) -> Optional[dict]:
             "pieces":         pieces_list,
         }
     except Exception:
+        # CRITIQUE : rollback obligatoire sinon InFailedSqlTransaction cascade
+        try:
+            db.rollback()
+        except Exception:
+            pass
         return None
 
 
@@ -861,6 +1109,118 @@ def _alerte_stock_from_dict(stock_info: Optional[dict]) -> Optional[str]:
     if not stock_info:
         return None
     return stock_info.get("alerte_globale")
+
+
+def _get_hierarchie_complete(db: Session, equipment_code: str) -> list[dict]:
+    """
+    Remonte la hiérarchie complète depuis le composant jusqu'à la machine racine.
+    Retourne [composant, parent, grand-parent, ..., racine].
+    """
+    try:
+        from models.equipement import Equipement
+        hierarchie = []
+        eq = (
+            db.query(Equipement)
+            .filter(Equipement.equipment_code == equipment_code)
+            .first()
+        )
+        if not eq:
+            return []
+
+        visited = set()
+        current = eq
+        while current and current.id_equipement not in visited:
+            visited.add(current.id_equipement)
+            hierarchie.append({
+                "code":        current.equipment_code,
+                "description": current.description,
+                "level":       current.hierarchy_level,
+                "is_racine":   current.id_parent is None,
+            })
+            if current.id_parent:
+                current = db.get(Equipement, current.id_parent)
+            else:
+                break
+        return hierarchie
+    except Exception:
+        try: db.rollback()
+        except Exception: pass
+        return []
+
+
+def _get_ots_predictifs(db: Session, equipment_code: str) -> list[dict]:
+    """OTs prédictifs créés pour ce composant."""
+    try:
+        from models.ot import OrdreTravail, TypeOT
+        from models.equipement import Equipement
+        eq = (
+            db.query(Equipement)
+            .filter(Equipement.equipment_code == equipment_code)
+            .first()
+        )
+        if not eq:
+            return []
+        ots = (
+            db.query(OrdreTravail)
+            .filter(
+                OrdreTravail.id_equipement == eq.id_equipement,
+                OrdreTravail.type_ot == TypeOT.PREDICTIF,
+            )
+            .order_by(OrdreTravail.created_at.desc())
+            .all()
+        )
+        return [
+            {
+                "id_ot":       ot.id_ot,
+                "numero_ot":   ot.numero_ot,
+                "statut":      ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut),
+                "date_prevue": str(ot.date_prevue.date()) if ot.date_prevue else None,
+                "created_at":  ot.created_at.isoformat() if ot.created_at else None,
+            }
+            for ot in ots
+        ]
+    except Exception:
+        try: db.rollback()
+        except Exception: pass
+        return []
+
+
+def _get_ots_correctifs(db: Session, equipment_code: str) -> list[dict]:
+    """OTs correctifs liés à ce composant."""
+    try:
+        from models.ot import OrdreTravail, TypeOT
+        from models.equipement import Equipement
+        eq = (
+            db.query(Equipement)
+            .filter(Equipement.equipment_code == equipment_code)
+            .first()
+        )
+        if not eq:
+            return []
+        ots = (
+            db.query(OrdreTravail)
+            .filter(
+                OrdreTravail.id_equipement == eq.id_equipement,
+                OrdreTravail.type_ot == TypeOT.CORRECTIF,
+            )
+            .order_by(OrdreTravail.created_at.desc())
+            .all()
+        )
+        return [
+            {
+                "id_ot":              ot.id_ot,
+                "numero_ot":          ot.numero_ot,
+                "statut":             ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut),
+                "date_prevue":        str(ot.date_prevue.date()) if ot.date_prevue else None,
+                "date_panne_associee": str(ot.created_at.date()) if ot.created_at else None,
+                "created_at":         ot.created_at.isoformat() if ot.created_at else None,
+            }
+            for ot in ots
+        ]
+    except Exception:
+        try: db.rollback()
+        except Exception: pass
+        return []
 
 
 def _get_machine_racine(db: Session, equipment_code: str) -> Optional[dict]:

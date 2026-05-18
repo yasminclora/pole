@@ -42,13 +42,13 @@ def equip_info(id_equip: int, db: Session) -> dict:
     if e.id_zone:
         z = db.get(Zone, e.id_zone)
         if z:
-            zone_nom = z.nom_zone
+            zone_nom = z.code_zone
             zone_code = z.code_zone
     
     if not zone_nom and racine and racine.id_zone:
         z = db.get(Zone, racine.id_zone)
         if z:
-            zone_nom = z.nom_zone
+            zone_nom = z.code_zone
             zone_code = z.code_zone
     
     return {

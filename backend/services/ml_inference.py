@@ -289,18 +289,28 @@ def predict_one(
     nb_pannes  = sum(1 for r in rows if r[0] is not None)
     confiance  = min(94, max(70, round(70 + (min(nb_pannes, 30) / 30) * 20)))
 
+    # Statut sur 3 niveaux (ROUGE/ORANGE/VERT, gardé en enum compat CRITIQUE/URGENT/OK)
     statut = (
-        "CRITIQUE"     if rul <= 3  else
-        "URGENT"       if rul <= 10 else
-        "SURVEILLANCE" if rul <= 25 else
-        "OK"
+        "CRITIQUE" if rul <= 5  else   # ROUGE
+        "URGENT"   if rul <= 15 else   # ORANGE
+        "OK"                           # VERT
     )
+
+    # date_panne_prevue = dernière panne CORR du composant + RUL
+    dates_corr = [r[0] for r in rows if r[0] is not None]
+    if dates_corr:
+        derniere_panne    = max(dates_corr)
+        date_panne_prevue = derniere_panne + timedelta(days=rul)
+    else:
+        derniere_panne    = None
+        date_panne_prevue = ref_date + timedelta(days=rul)
 
     return {
         "equipment_code":    equipment_code,
         "rul_jours":         rul,
         "statut":            statut,
-        "date_panne_prevue": (ref_date + timedelta(days=rul)).isoformat(),
+        "date_panne_prevue": date_panne_prevue.isoformat(),
+        "derniere_panne":    derniere_panne.isoformat() if derniere_panne else None,
         "confiance_pct":     confiance,
         "source":            "ML",
     }
@@ -634,4 +644,127 @@ def get_active_model_info(db: Session) -> Optional[dict]:
         "lookback":    metadata.get("lookback", 30),
         "max_rul":     metadata.get("max_rul",  30),
         "num_composants": metadata.get("num_composants", 0),
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Prédictions PONCTUELLES — 1 prédiction par composant test (33)
+#  Version qui marchait : utilisée par /predictions/run avec model_type obligatoire
+# ════════════════════════════════════════════════════════════════════════════
+
+def run_predictions_test_set(
+    db:             Session,
+    model_type:     str,
+    pole_filter:    Optional[str] = None,
+    id_pole_filter: Optional[int] = None,
+    scope:          str = "test",
+) -> dict:
+    """
+    1 prédiction par composant test (33), à `ref_date = sa dernière panne CORR`.
+    Statut 3 niveaux : CRITIQUE/URGENT/OK (ROUGE/ORANGE/VERT côté UI).
+    """
+    if model_type not in ("LSTM", "GRU"):
+        raise ValueError(f"model_type doit être 'LSTM' ou 'GRU' (reçu : {model_type!r})")
+
+    model, scaler_x, scaler_y, metadata, comp_map = load_active_model(db)
+
+    if scope == "test":
+        codes, source = get_test_codes(db)
+    else:
+        codes  = list(comp_map.keys())
+        source = "all_mapping"
+
+    # Filtre par pôle
+    if id_pole_filter is not None:
+        from models.equipement import Equipement
+        rows = (
+            db.query(Equipement.equipment_code)
+            .filter(
+                Equipement.equipment_code.in_(codes),
+                Equipement.id_pole == id_pole_filter,
+            )
+            .distinct()
+            .all()
+        )
+        codes = [r[0] for r in rows]
+    elif pole_filter:
+        rows = (
+            db.query(HistoriqueIntervention.equipment_code,
+                     HistoriqueIntervention.action_entity)
+            .filter(HistoriqueIntervention.equipment_code.in_(codes))
+            .distinct().all()
+        )
+        cible = pole_filter.strip().upper()
+        codes = [c for c, p in rows if p and p.strip().upper() == cible]
+
+    levels_modelises = metadata.get("levels_modelises", [3, 4])
+    level_map = dict(
+        db.query(HistoriqueIntervention.equipment_code,
+                 HistoriqueIntervention.equipment_level)
+        .filter(
+            HistoriqueIntervention.equipment_code.in_(codes),
+            HistoriqueIntervention.equipment_level.in_(levels_modelises),
+        )
+        .distinct().all()
+    )
+
+    # ref_date par composant = sa dernière panne CORR
+    last_panne_par_code = dict(
+        db.query(
+            HistoriqueIntervention.equipment_code,
+            func.max(HistoriqueIntervention.date_declaration),
+        )
+        .filter(
+            HistoriqueIntervention.equipment_code.in_(codes),
+            HistoriqueIntervention.type_travail == TypeTravailHistorique.CORR,
+        )
+        .group_by(HistoriqueIntervention.equipment_code)
+        .all()
+    )
+
+    ref_date_globale = _get_ref_date(db)
+
+    resultats = []
+    nb_sans_pred = 0
+
+    for code in codes:
+        level = level_map.get(code)
+        if level is None or code not in comp_map:
+            nb_sans_pred += 1
+            continue
+        ref_date_comp = last_panne_par_code.get(code) or ref_date_globale
+        try:
+            pred = predict_one(
+                db, code, int(level),
+                model, scaler_x, scaler_y, metadata, comp_map,
+                ref_date=ref_date_comp,
+            )
+            if pred is None:
+                nb_sans_pred += 1
+                continue
+            pred["comp_level"]    = int(level)
+            pred["ref_date_used"] = ref_date_comp.isoformat()
+            resultats.append(pred)
+        except Exception as e:
+            print(f"[predict_one] erreur sur {code}: {e}", flush=True)
+            nb_sans_pred += 1
+
+    def _count(s: str) -> int:
+        return sum(1 for r in resultats if r["statut"] == s)
+
+    return {
+        "model_type":         model_type,
+        "metrics":            metadata.get("metrics_test", {}),
+        "ref_date_global":    ref_date_globale.isoformat() if ref_date_globale else None,
+        "lookback":           metadata.get("lookback", 30),
+        "max_rul":            metadata.get("max_rul",  30),
+        "scope":              scope,
+        "nb_test_codes":      len(codes),
+        "nb_total":           len(resultats),
+        "nb_sans_prediction": nb_sans_pred,
+        "nb_critiques":       _count("CRITIQUE"),
+        "nb_urgents":         _count("URGENT"),
+        "nb_ok":              _count("OK"),
+        "resultats":          sorted(resultats, key=lambda r: r["rul_jours"]),
+        "test_codes_source":  source,
     }

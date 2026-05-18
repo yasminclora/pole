@@ -1047,7 +1047,7 @@ def run():
                 print("[OK] Pole cree : [" + code + "] " + nom)
 
             nb_zones_crees = 0
-            for code_zone, nom_zone in pole_data["zones"]:
+            for code_zone, _nom_zone in pole_data["zones"]:
                 existante = db.query(Zone).filter_by(
                     code_zone = code_zone,
                     id_pole   = pole_obj.id_pole
@@ -1056,7 +1056,6 @@ def run():
                 if not existante:
                     zone = Zone(
                         code_zone = code_zone,
-                        nom_zone  = nom_zone,
                         id_pole   = pole_obj.id_pole,
                     )
                     db.add(zone)

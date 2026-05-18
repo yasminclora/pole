@@ -195,12 +195,12 @@ def equip_info(id_equip: int, db: Session) -> dict:
     if e.id_zone:
         z = db.get(Zone, e.id_zone)
         if z:
-            zone_nom = z.nom_zone
+            zone_nom = z.code_zone
             zone_code = z.code_zone
     if not zone_nom and racine and racine.id_zone:
         z = db.get(Zone, racine.id_zone)
         if z:
-            zone_nom = z.nom_zone
+            zone_nom = z.code_zone
             zone_code = z.code_zone
     
     return {
@@ -247,12 +247,12 @@ def ot_to_dict(ot: OrdreTravail, db: Session) -> dict:
     if equip and equip.id_zone:
         zone = db.get(Zone, equip.id_zone)
         if zone:
-            zone_nom = zone.nom_zone
+            zone_nom = zone.code_zone
             zone_code = zone.code_zone
     if not zone_nom and racine and racine.id_zone:
         zone = db.get(Zone, racine.id_zone)
         if zone:
-            zone_nom = zone.nom_zone
+            zone_nom = zone.code_zone
             zone_code = zone.code_zone
     
     equip_dict = None
@@ -900,12 +900,12 @@ def stats_archives(
 
         # Par zone
         zone_stats = db.query(
-            Zone.nom_zone,
+            Zone.code_zone,
             func.count(OrdreTravail.id_ot)
         ).join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement
         ).join(Zone, Equipement.id_zone == Zone.id_zone
         ).filter(OrdreTravail.statut == StatutOT.ARCHIVE
-        ).group_by(Zone.nom_zone).all()
+        ).group_by(Zone.code_zone).all()
 
         # Par mois (cette année)
         current_year = datetime.now().year
@@ -1030,7 +1030,7 @@ def imprimer_liste_ot(
             key = s
         elif groupement == "zone":
             z = _zone_of(ot)
-            key = z.nom_zone if z else "Sans zone"
+            key = z.code_zone if z else "Sans zone"
         elif groupement == "equipe":
             e = _equipe_of(ot)
             key = e.nom_equipe if e else "Non assigné à une équipe"
@@ -1098,7 +1098,7 @@ def imprimer_liste_ot(
                   <div class="mono" style="font-size:7.5pt;">{_esc(composante_code)}</div>
                   <div style="color:#6b7280;font-size:7.5pt;">{_esc(composante_txt[:50])}</div>
                 </td>
-                <td>{_esc(zone.nom_zone if zone else '—')}</td>
+                <td>{_esc(zone.code_zone if zone else '—')}</td>
                 <td>{_esc(pole.nom_pole if pole else '—')}</td>
                 <td class="mono" style="font-size:7.5pt;">{_esc(di.numero_di if di else '—')}</td>
                 <td>{_esc((methodiste.prenom + ' ' + methodiste.nom) if methodiste else '—')}</td>
@@ -1151,7 +1151,7 @@ def imprimer_liste_ot(
     equipe_obj = equipes.get(id_equipe) if id_equipe else None
     filtres_str = []
     if pole_obj:   filtres_str.append(f"Pôle {pole_obj.nom_pole}")
-    if zone_obj:   filtres_str.append(f"Zone {zone_obj.nom_zone}")
+    if zone_obj:   filtres_str.append(f"Zone {zone_obj.code_zone}")
     if equipe_obj: filtres_str.append(f"Équipe {equipe_obj.nom_equipe}")
     if statut and statut.upper() not in ("TOUS", "ALL", ""):     filtres_str.append(f"Statut : {statut}")
     if type_ot and type_ot.upper() not in ("TOUS", "ALL", ""):   filtres_str.append(f"Type : {type_ot}")
@@ -1270,7 +1270,7 @@ def imprimer_archives_ot(
     for ot in ots:
         if groupement == "zone":
             z = _zone_of(ot)
-            key = z.nom_zone if z else "Sans zone"
+            key = z.code_zone if z else "Sans zone"
         elif groupement == "equipe":
             e = _equipe_of(ot)
             key = e.nom_equipe if e else "Non assigné à une équipe"
@@ -1332,7 +1332,7 @@ def imprimer_archives_ot(
                   <div class="mono" style="font-size:7.5pt;">{_esc(composante_code)}</div>
                   <div style="color:#6b7280;font-size:7.5pt;">{_esc(composante_txt[:50])}</div>
                 </td>
-                <td>{_esc(zone.nom_zone if zone else '—')}</td>
+                <td>{_esc(zone.code_zone if zone else '—')}</td>
                 <td>{_esc(pole.nom_pole if pole else '—')}</td>
                 <td class="mono" style="font-size:7.5pt;">{_esc(di.numero_di if di else '—')}</td>
                 <td>{_esc((methodiste.prenom + ' ' + methodiste.nom) if methodiste else '—')}</td>
@@ -1386,7 +1386,7 @@ def imprimer_archives_ot(
     equipe_obj = equipes.get(id_equipe) if id_equipe else None
     filtres_str = []
     if pole_obj:   filtres_str.append(f"Pôle {pole_obj.nom_pole}")
-    if zone_obj:   filtres_str.append(f"Zone {zone_obj.nom_zone}")
+    if zone_obj:   filtres_str.append(f"Zone {zone_obj.code_zone}")
     if equipe_obj: filtres_str.append(f"Équipe {equipe_obj.nom_equipe}")
     if date_debut: filtres_str.append(f"du {date_debut}")
     if date_fin:   filtres_str.append(f"au {date_fin}")

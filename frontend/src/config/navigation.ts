@@ -37,7 +37,9 @@ export const NAV_SECTIONS: NavSection[] = [
     icon        : TrendingUp,
     allowedRoles: ['ADMIN', 'METHODISTE'],
     items: [
-      { label: 'Prédictions ML', href: '/predictions',
+      { label: 'Lancer prédiction', href: '/predictions',
+        allowedRoles: ['ADMIN', 'METHODISTE'] },
+      { label: 'Historique', href: '/predictions/historique',
         allowedRoles: ['ADMIN', 'METHODISTE'] },
       { label: 'Dashboard prédictif', href: '/predictions/dashboard',
         allowedRoles: ['ADMIN', 'METHODISTE'] },

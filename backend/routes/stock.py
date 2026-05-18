@@ -364,7 +364,7 @@ def _serialize_reservation(res: ReservationPiece, db: Session = None) -> dict:
                 if ot.equipement.id_zone:
                     z = db.get(Zone, ot.equipement.id_zone)
                     if z:
-                        nom_zone = z.nom_zone
+                        nom_zone = z.code_zone
 
     # ── Détails complets du demandeur ──────────────────────────────
     demandeur = None

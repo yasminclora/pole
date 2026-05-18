@@ -72,13 +72,11 @@ class MachineDetail(MachineRead):
 
 class ZoneCreate(BaseModel):
     code_zone : str
-    nom_zone  : str
     id_pole   : int
 
 class ZoneRead(BaseModel):
     id_zone   : int
     code_zone : str
-    nom_zone  : str
     id_pole   : int
     nom_pole  : Optional[str] = None
 

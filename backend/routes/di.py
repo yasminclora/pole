@@ -51,13 +51,13 @@ def equip_info(id_equip: int, db: Session) -> dict:
     if e.id_zone:
         z = db.get(Zone, e.id_zone)
         if z:
-            zone_nom = z.nom_zone
+            zone_nom = z.code_zone
             zone_code = z.code_zone
     
     if not zone_nom and racine and racine.id_zone:
         z = db.get(Zone, racine.id_zone)
         if z:
-            zone_nom = z.nom_zone
+            zone_nom = z.code_zone
             zone_code = z.code_zone
     
     return {
@@ -306,11 +306,11 @@ def debug_equip(id_equip: int, db: Session = Depends(get_db)):
             "id_machine_racine": e.id_machine_racine,
             "machine_racine_code": machine_racine.equipment_code if machine_racine else None,
             "id_zone": e.id_zone,
-            "zone_nom": zone.nom_zone if zone else None,
+            "zone_nom": zone.code_zone if zone else None,
         },
         "machine_racine_zone": {
             "id": machine_racine.id_zone if machine_racine else None,
-            "nom": db.get(Zone, machine_racine.id_zone).nom_zone if machine_racine and machine_racine.id_zone else None
+            "nom": db.get(Zone, machine_racine.id_zone).code_zone if machine_racine and machine_racine.id_zone else None
         } if machine_racine else None
     }
 

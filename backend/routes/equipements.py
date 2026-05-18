@@ -25,8 +25,8 @@ def equip_to_dict(e: Equipement, db: Session) -> dict:
         "id_pole"         : e.id_pole,
         "nom_pole"        : pole.nom_pole if pole else None,
         "id_zone"         : e.id_zone,
-        "nom_zone"        : zone.nom_zone if zone else None,
-        "code_zone"        : zone.code_zone if zone else None,
+        "code_zone"       : zone.code_zone if zone else None,
+        "nom_zone"        : zone.code_zone if zone else None,   # legacy alias = code (nom_zone supprimé en BDD)
         "install_date"    : str(e.install_date) if e.install_date else None,
         "status"          : e.status,
         "categorie"       : e.categorie,

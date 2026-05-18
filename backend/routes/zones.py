@@ -12,7 +12,7 @@ def zone_to_dict(z: Zone, db: Session) -> dict:
     return {
         "id_zone"  : z.id_zone,
         "code_zone": z.code_zone,
-        "nom_zone" : z.nom_zone,
+        "nom_zone" : z.code_zone,   # legacy alias = code (nom_zone supprimé en BDD)
         "id_pole"  : z.id_pole,
         "nom_pole" : pole.nom_pole if pole else None,
     }
@@ -45,7 +45,6 @@ def creer_zone(data: dict, db: Session = Depends(get_db)):
 
         zone = Zone(
             code_zone = data["code_zone"].upper().strip(),
-            nom_zone  = data["nom_zone"].strip(),
             id_pole   = data["id_pole"],
         )
         db.add(zone)

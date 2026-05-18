@@ -78,7 +78,7 @@ def get_di_by_status(db: Session, id_pole: Optional[int] = None):
 
 def get_ot_by_zone(db: Session, id_pole: Optional[int] = None):
     q = db.query(
-        Zone.nom_zone,
+        Zone.code_zone,
         func.count(OrdreTravail.id_ot).label('count'),
     ).join(Equipement, OrdreTravail.id_equipement == Equipement.id_equipement
     ).join(Zone, Equipement.id_zone == Zone.id_zone)
@@ -86,8 +86,8 @@ def get_ot_by_zone(db: Session, id_pole: Optional[int] = None):
     if id_pole:
         q = q.filter(OrdreTravail.id_pole == id_pole)
 
-    rows = q.group_by(Zone.nom_zone).order_by(func.count(OrdreTravail.id_ot).desc()).all()
-    return [{"zone": r.nom_zone, "count": r.count} for r in rows]
+    rows = q.group_by(Zone.code_zone).order_by(func.count(OrdreTravail.id_ot).desc()).all()
+    return [{"zone": r.code_zone, "count": r.count} for r in rows]
 
 
 def get_ot_by_pole(db: Session):

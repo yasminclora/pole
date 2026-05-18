@@ -5,9 +5,8 @@ from database import Base
 class Zone(Base):
     __tablename__ = "zones"
 
-    id_zone  = Column(Integer, primary_key=True, index=True)
+    id_zone   = Column(Integer, primary_key=True, index=True)
     code_zone = Column(String(50), nullable=False)
-    nom_zone  = Column(String(200), nullable=False)
     id_pole   = Column(Integer, ForeignKey("poles.id_pole"), nullable=False)
 
     pole     = relationship("Pole", back_populates="zones")
