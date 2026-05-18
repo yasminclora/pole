@@ -8,17 +8,17 @@ import {
   ArrowLeft, Loader2, Plus, ChevronDown,
   ChevronRight, Factory, Trash2,
   AlertTriangle, Layers, Settings,
-  MapPin, Calendar, Activity
+  MapPin, Calendar,
 } from 'lucide-react'
 
 // ─── Config niveaux ───────────────────────────────────────────────────
 
 const LEVEL_CONFIG: Record<number, {
-  label     : string
+  label      : string
   borderColor: string
-  iconBg    : string
-  iconColor : string
-  badgeCls  : string
+  iconBg     : string
+  iconColor  : string
+  badgeCls   : string
 }> = {
   1: {
     label      : 'Machine',
@@ -50,20 +50,6 @@ const LEVEL_CONFIG: Record<number, {
   },
 }
 
-const STATUS_CLS: Record<string, string> = {
-  NORMAL     : 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300',
-  EN_PANNE   : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300',
-  ARRETE     : 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300',
-  MAINTENANCE: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',
-}
-
-const STATUS_DOT: Record<string, string> = {
-  NORMAL     : 'bg-green-500',
-  EN_PANNE   : 'bg-red-500',
-  ARRETE     : 'bg-orange-500',
-  MAINTENANCE: 'bg-amber-500',
-}
-
 const inputClass = `w-full px-3 py-2.5 rounded-xl border
   border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800
   text-gray-900 dark:text-white text-sm
@@ -85,19 +71,15 @@ function NoeudEquipement({
   depth?     : number
 }) {
   const [ouvert, setOuvert] = useState(depth < 2)
-  const conf      = LEVEL_CONFIG[noeud.hierarchy_level] ?? LEVEL_CONFIG[4]
+  const conf       = LEVEL_CONFIG[noeud.hierarchy_level] ?? LEVEL_CONFIG[4]
   const hasEnfants = (noeud.enfants?.length ?? 0) > 0
-  const isPanne    = noeud.status && noeud.status !== 'NORMAL'
 
   return (
     <div className={depth > 0 ? 'ml-5 pl-4 border-l border-gray-200 dark:border-gray-700 mt-2' : 'mt-2'}>
 
       {/* ── Ligne du nœud ── */}
-      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
-        isPanne
-          ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10'
-          : `${conf.borderColor} bg-white dark:bg-gray-900`
-      }`}>
+      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all
+                       ${conf.borderColor} bg-white dark:bg-gray-900`}>
 
         {/* Bouton expand */}
         <button
@@ -123,14 +105,6 @@ function NoeudEquipement({
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${conf.badgeCls}`}>
               {conf.label}
             </span>
-            {isPanne && (
-              <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                STATUS_CLS[noeud.status] ?? 'bg-gray-100 text-gray-600'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[noeud.status] ?? 'bg-gray-400'}`} />
-                {noeud.status.replace('_', ' ')}
-              </span>
-            )}
           </div>
 
           <p className="text-sm text-gray-700 dark:text-gray-300 truncate mt-0.5">
@@ -212,7 +186,7 @@ export default function DetailEquipementPage() {
   const rawId    = Array.isArray(params?.id) ? params.id[0] : params?.id
   const id       = rawId ? parseInt(rawId, 10) : NaN
   const authUser = useSelector((s: RootState) => s.auth.user)
-  const isAdmin  = authUser?.role === 'ADMIN'   // LOGIQUE ROLE
+  const isAdmin  = authUser?.role === 'ADMIN'
 
   const [arbre,   setArbre]   = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -220,7 +194,7 @@ export default function DetailEquipementPage() {
   // ── Modal ajouter ──
   const [parentSelect, setParentSelect] = useState<any>(null)
   const [formAjout,    setFormAjout]    = useState({
-    code: '', description: '', categorie: '', install_date: '', status: 'NORMAL',
+    code: '', description: '', categorie: '', install_date: '',
   })
   const [saving,   setSaving]   = useState(false)
   const [errModal, setErrModal] = useState('')
@@ -258,10 +232,9 @@ export default function DetailEquipementPage() {
         id_parent     : parentSelect.id_equipement,
         categorie     : formAjout.categorie.trim() || undefined,
         install_date  : formAjout.install_date     || undefined,
-        status        : formAjout.status,
       })
       setParentSelect(null)
-      setFormAjout({ code: '', description: '', categorie: '', install_date: '', status: 'NORMAL' })
+      setFormAjout({ code: '', description: '', categorie: '', install_date: '' })
       await charger()
     } catch (err: any) {
       setErrModal(err.response?.data?.detail ?? 'Une erreur est survenue')
@@ -282,7 +255,7 @@ export default function DetailEquipementPage() {
 
   const resetFormAjout = () => {
     setParentSelect(null)
-    setFormAjout({ code: '', description: '', categorie: '', install_date: '', status: 'NORMAL' })
+    setFormAjout({ code: '', description: '', categorie: '', install_date: '' })
     setErrModal('')
   }
 
@@ -298,9 +271,6 @@ export default function DetailEquipementPage() {
   if (!arbre) return (
     <div className="text-center py-20 text-gray-500 text-sm">Équipement introuvable</div>
   )
-
-  const statusCls = STATUS_CLS[arbre.status]  ?? 'bg-gray-100 text-gray-600'
-  const statusDot = STATUS_DOT[arbre.status]  ?? 'bg-gray-400'
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -374,36 +344,18 @@ export default function DetailEquipementPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600
-                                    dark:text-gray-400 mb-1.5">
-                    Date installation
-                    <span className="text-gray-400 font-normal ml-1">(optionnel)</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={formAjout.install_date}
-                    onChange={e => setFormAjout(f => ({ ...f, install_date: e.target.value }))}
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600
-                                    dark:text-gray-400 mb-1.5">
-                    Statut
-                  </label>
-                  <select
-                    value={formAjout.status}
-                    onChange={e => setFormAjout(f => ({ ...f, status: e.target.value }))}
-                    className={inputClass}
-                  >
-                    <option value="NORMAL">Normal</option>
-                    <option value="EN_PANNE">En panne</option>
-                    <option value="ARRETE">Arrêté</option>
-                    <option value="MAINTENANCE">Maintenance</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600
+                                  dark:text-gray-400 mb-1.5">
+                  Date installation
+                  <span className="text-gray-400 font-normal ml-1">(optionnel)</span>
+                </label>
+                <input
+                  type="date"
+                  value={formAjout.install_date}
+                  onChange={e => setFormAjout(f => ({ ...f, install_date: e.target.value }))}
+                  className={inputClass}
+                />
               </div>
 
               {errModal && (
@@ -513,7 +465,6 @@ export default function DetailEquipementPage() {
           <p className="text-sm text-gray-400 truncate">{arbre.description}</p>
         </div>
 
-        {/* LOGIQUE ROLE : bouton ajouter sous-système visible uniquement admin */}
         {isAdmin && (
           <button
             type="button"
@@ -527,8 +478,8 @@ export default function DetailEquipementPage() {
         )}
       </div>
 
-      {/* ════════════ STATS ════════════ */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* ════════════ STATS (Pôle, Zone, Installation) ════════════ */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           {
             label: 'Pôle',
@@ -539,12 +490,6 @@ export default function DetailEquipementPage() {
             label: 'Zone',
             value: arbre.code_zone ?? '—',
             icon : <MapPin size={13} />,
-          },
-          {
-            label: 'Statut',
-            value: arbre.status    ?? '—',
-            icon : <Activity size={13} />,
-            badge: true,
           },
           {
             label: 'Installation',
@@ -563,15 +508,7 @@ export default function DetailEquipementPage() {
               {s.icon}
               {s.label}
             </div>
-            {s.badge ? (
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1
-                                rounded-full text-xs font-medium ${statusCls}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
-                {arbre.status}
-              </span>
-            ) : (
-              <p className="text-sm font-medium text-gray-900 dark:text-white">{s.value}</p>
-            )}
+            <p className="text-sm font-medium text-gray-900 dark:text-white">{s.value}</p>
           </div>
         ))}
       </div>
@@ -604,7 +541,7 @@ export default function DetailEquipementPage() {
           />
         </div>
 
-        {/* Légende */}
+        {/* Légende niveaux uniquement */}
         <div className="flex items-center gap-4 px-5 py-3
                         border-t border-gray-100 dark:border-gray-800 flex-wrap">
           {Object.entries(LEVEL_CONFIG).map(([lvl, cfg]) => (
@@ -614,12 +551,6 @@ export default function DetailEquipementPage() {
               </span>
             </div>
           ))}
-          <div className="flex items-center gap-1.5 ml-auto">
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium
-                             bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300">
-              En panne
-            </span>
-          </div>
         </div>
       </div>
     </div>

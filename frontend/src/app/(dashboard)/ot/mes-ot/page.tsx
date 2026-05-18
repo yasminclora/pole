@@ -11,7 +11,6 @@ interface OT {
   numero_ot: string
   type_ot: string
   classe: string
-  priorite: string
   statut: string
   description: string
   date_prevue?: string | null
@@ -223,7 +222,7 @@ export default function MesOTPage() {
                   <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">N° OT</th>
                   <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Machine Racine</th>
                   <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Équipement</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Priorité</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Statut</th>
                   <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap pr-4">Action</th>
                 </tr>
               </thead>
@@ -257,7 +256,9 @@ export default function MesOTPage() {
                       ) : <span className="text-gray-400 text-xs">—</span>}
                     </td>
 
-                    <td className="px-3 py-4"><UrgBadge v={ot.priorite}/></td>
+                    <td className="px-3 py-4">
+                      <StatutBadge v={ot.statut}/>
+                    </td>
 
                     <td className="px-4 py-4 text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">
@@ -267,7 +268,14 @@ export default function MesOTPage() {
                             border border-gray-300 text-gray-700 hover:bg-gray-100 transition-all">
                           <Eye size={12}/>Voir
                         </button>
-                        {(ot.statut === 'ASSIGNE' || ot.statut === 'EN_COURS') && (
+                        {ot.statut === 'REWORK' ? (
+                          <button
+                            onClick={() => router.push(`/ot/${ot.id_ot}/executer`)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold
+                              bg-orange-600 text-white hover:bg-orange-700 transition-all shadow-sm hover:shadow-md">
+                            <Wrench size={12}/>Reprendre
+                          </button>
+                        ) : (ot.statut === 'ASSIGNE' || ot.statut === 'EN_COURS') && (
                           <button
                             onClick={() => router.push(`/ot/${ot.id_ot}/executer`)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold

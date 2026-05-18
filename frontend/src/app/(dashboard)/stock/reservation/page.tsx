@@ -42,7 +42,6 @@ interface Reservation {
   id_ot                 : number
   numero_ot             : string
   ot_statut            ?: string
-  ot_priorite          ?: string
   id_mecanicien         : number
   mecanicien_nom       ?: string
   mecanicien_role      ?: string
@@ -477,11 +476,7 @@ function ReservationCard({
               <span className="inline-flex items-center gap-1 text-gray-600">
                 <Wrench size={12} className="text-[#003B7A]" /> {res.numero_ot || `#${res.id_ot}`}
               </span>
-              {res.ot_priorite && (
-                <span className={`px-2 py-0.5 rounded-full font-semibold border text-[10px] ${PRIORITE_COLOR[res.ot_priorite] || ''}`}>
-                  {res.ot_priorite}
-                </span>
-              )}
+            
               {res.equipement_code && (
                 <span className="inline-flex items-center gap-1 text-gray-600 truncate">
                   <Package size={12} className="text-gray-400" /> {res.equipement_code}
@@ -592,7 +587,6 @@ function DetailModal({ res, onClose }: { res: Reservation; onClose: () => void }
           <Section title="Ordre de travail">
             <Field label="Numéro OT" value={res.numero_ot || `#${res.id_ot}`} />
             {res.ot_statut && <Field label="Statut OT" value={res.ot_statut} />}
-            {res.ot_priorite && <Field label="Priorité" value={res.ot_priorite} />}
             {res.equipement_code && <Field label="Équipement" value={`${res.equipement_code} — ${res.equipement_description ?? ''}`} />}
             {res.machine_racine_code && <Field label="Machine racine" value={res.machine_racine_code} />}
             {res.nom_zone && <Field label="Zone" value={res.nom_zone} />}

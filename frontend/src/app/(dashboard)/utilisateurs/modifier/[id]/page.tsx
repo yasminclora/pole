@@ -14,7 +14,6 @@ interface Equipe {
 
 const ROLES = [
   { value: 'METHODISTE',  label: 'Méthodiste'    },
-  { value: 'CHEF_POLE',   label: 'Chef de Pôle'  },
   { value: 'CHEF_EQUIPE', label: "Chef d'Équipe" },
   { value: 'MECANICIEN',  label: 'Mécanicien'    },
   { value: 'TECHNICIEN',  label: 'Technicien'    },

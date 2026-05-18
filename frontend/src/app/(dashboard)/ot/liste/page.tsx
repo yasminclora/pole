@@ -154,32 +154,45 @@ export default function ListeOTPage() {
       return 0
     })
 
-  const thBase = "px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap"
-  const thSort = `${thBase} cursor-pointer hover:bg-[#002d5e] transition-colors select-none`
+  const thBase = "px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500 whitespace-nowrap"
+  const thSort = `${thBase} cursor-pointer hover:text-indigo-600 transition-colors select-none`
 
   return (
     <div className="space-y-6 pb-6">
 
+      {/* ── HERO HEADER (style CEVITAL bleu) ─────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#003B7A] via-[#004a8f] to-[#003B7A] p-8 text-white shadow-xl">
         <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"/>
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"/>
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-[#003B7A]/20 rounded-full blur-3xl"/>
 
-        <div className="relative flex items-center justify-between">
+        <div className="relative flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-5">
             <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/20">
-              <ClipboardList size={32} className="text-white"/>
+              <ClipboardList size={30} className="text-white"/>
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Ordres de Travail</h1>
-              <p className="text-blue-200 text-sm mt-1">Cevital · {ots.length} OT</p>
+              <p className="text-blue-200 text-sm mt-1">{authUser?.nom_pole || 'Cevital'} · {ots.length} OT</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-2xl font-bold">{ots.filter(o => o.statut === 'EN_COURS').length}</p>
+              <p className="text-xs text-blue-200">En cours</p>
+            </div>
+            <div className="w-px h-10 bg-white/20"/>
+            <div className="text-right">
+              <p className="text-2xl font-bold">{ots.filter(o => o.statut === 'TERMINE').length}</p>
+              <p className="text-xs text-blue-200">Soumis</p>
             </div>
           </div>
         </div>
       </div>
 
+      {/* ── FILTER BAR ────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm">
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 min-w-64 group">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
               <Search size={18} className="text-gray-400 group-focus-within:text-[#003B7A] transition-colors"/>
@@ -198,19 +211,21 @@ export default function ListeOTPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
-            <span className="text-xs font-medium text-gray-500">Statut:</span>
+          <div className="relative">
             <select
               value={filtre}
               onChange={e => setFiltre(e.target.value)}
-              className="appearance-none bg-transparent text-sm font-semibold text-[#003B7A] cursor-pointer focus:outline-none pr-6"
+              className="appearance-none pl-5 pr-12 py-3 rounded-xl border-2 border-gray-200
+                bg-white text-gray-700 text-sm font-semibold cursor-pointer
+                focus:border-[#003B7A] focus:ring-4 focus:ring-[#003B7A]/10 focus:outline-none
+                transition-all duration-200"
             >
               <option value="TOUS">Tous ({ots.length})</option>
               {Object.entries(counts).map(([k, v]) => (
                 <option key={k} value={k}>{STATUT_CFG[k]?.label ?? k} ({v})</option>
               ))}
             </select>
-            <svg className="w-4 h-4 text-[#003B7A] pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#003B7A] pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
             </svg>
           </div>
@@ -223,13 +238,28 @@ export default function ListeOTPage() {
           </button>
 
           <button onClick={() => setShowPrintModal(true)}
-            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#003B7A] text-white text-sm font-bold
+            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#003B7A] text-white text-sm font-semibold
               hover:bg-[#002a5a] transition-all duration-200 shadow-sm">
             <Printer size={16}/>Imprimer
           </button>
         </div>
+
+        {Object.keys(counts).length > 0 && (
+          <div className="flex gap-2 mt-4 pt-4 border-t border-gray-100 flex-wrap">
+            {Object.entries(counts).map(([k, v]) => (
+              <button key={k} onClick={() => setFiltre(filtre === k ? 'TOUS' : k)}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200
+                  ${filtre === k
+                    ? 'bg-[#003B7A] text-white shadow-lg'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {STATUT_CFG[k]?.label ?? k}: {v}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
+      {/* ── TABLE CARD ─────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
         {loading ? (
           <div className="flex items-center justify-center py-24 gap-3">
@@ -238,6 +268,7 @@ export default function ListeOTPage() {
           </div>
         ) : otsFiltrees.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24">
+            <ClipboardList size={48} className="text-gray-200 mb-4"/>
             <p className="text-lg font-medium text-gray-500 mb-2">Aucun OT trouvé</p>
             <p className="text-sm text-gray-400">
               {search || filtre !== 'TOUS' ? 'Essayez de modifier vos critères de recherche' : 'Aucun ordre de travail'}
@@ -248,16 +279,18 @@ export default function ListeOTPage() {
             <table className="w-full border-collapse text-sm">
               <thead style={{backgroundColor:'#003B7A'}}>
                 <tr>
-                  <th className={thSort} onClick={() => toggleSort('numero_ot')}>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap cursor-pointer hover:text-white"
+                      onClick={() => toggleSort('numero_ot')}>
                     <div className="flex items-center gap-1">N° OT<SortIcon col="numero_ot" k={sortKey} d={sortDir}/></div>
                   </th>
-                  <th className={thBase}>Machine Racine</th>
-                  <th className={thBase}>Equipement</th>
-                  <th className={thBase}>Assigné à</th>
-                  <th className={thSort} onClick={() => toggleSort('statut')}>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Machine Racine</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Équipement</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap">Assigné à</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap cursor-pointer hover:text-white"
+                      onClick={() => toggleSort('statut')}>
                     <div className="flex items-center gap-1">Statut<SortIcon col="statut" k={sortKey} d={sortDir}/></div>
                   </th>
-                  <th className={`${thBase} text-right pr-4`}>Action</th>
+                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-blue-100 whitespace-nowrap pr-4">Action</th>
                 </tr>
               </thead>
 
@@ -269,28 +302,33 @@ export default function ListeOTPage() {
 
                     <td className="px-3 py-4">
                       <p className="font-mono text-sm font-bold" style={{color:'#003B7A'}}>{ot.numero_ot}</p>
+                      <p className="text-xs text-gray-400">{ot.type_ot} · {ot.classe}</p>
                     </td>
 
-                    <td className="px-3 py-4">
+                    <td className="px-3 py-4 min-w-[140px]">
                       {ot.equipement?.machine_racine_code ? (
-                        <div>
+                        <>
                           <p className="font-mono text-xs font-semibold text-[#003B7A]">{ot.equipement.machine_racine_code}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">{ot.equipement.machine_racine_desc}</p>
-                        </div>
+                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{ot.equipement.machine_racine_desc}</p>
+                        </>
                       ) : <span className="text-gray-400 text-xs">—</span>}
                     </td>
 
-                    <td className="px-3 py-4 min-w-[120px]">
+                    <td className="px-3 py-4 min-w-[140px]">
                       {ot.equipement ? (
-                        <div>
+                        <>
                           <p className="font-mono text-xs font-semibold text-[#003B7A]">{ot.equipement.equipment_code}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">{ot.equipement.description}</p>
-                        </div>
+                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{ot.equipement.description}</p>
+                        </>
                       ) : <span className="text-gray-400 text-xs">—</span>}
                     </td>
 
                     <td className="px-3 py-4 text-sm text-gray-600">
-                      {ot.assigne?.nom || <span className="text-amber-500">Non assigné</span>}
+                      {ot.assigne?.nom || (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-amber-50 text-amber-700 border-amber-200">
+                          Non assigné
+                        </span>
+                      )}
                     </td>
 
                     <td className="px-3 py-4"><StatutBadge v={ot.statut}/></td>
@@ -301,14 +339,14 @@ export default function ListeOTPage() {
                           <button
                             onClick={(e) => openAssignModal(ot, e)}
                             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold
-                              bg-[#00A651] text-white hover:bg-[#008f44] transition-all shadow-sm"
+                              bg-emerald-500 text-white hover:bg-emerald-600 transition-all shadow-sm hover:shadow-md"
                           >
                             <UserPlus size={14} />Assigner
                           </button>
                         )}
                         <button onClick={() => router.push(`/ot/${ot.id_ot}`)}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold
-                            bg-[#003B7A] text-white hover:bg-[#002a5a] transition-all shadow-sm hover:shadow-md">
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold
+                            bg-[#003B7A] text-white hover:bg-[#002a5a] transition-all shadow-sm">
                           <Eye size={14}/>Détail
                         </button>
                       </div>

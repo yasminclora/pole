@@ -144,26 +144,43 @@ export default function DetailOTPage() {
 
       {/* ── DI & Intervention ── */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
-          <h3 className="font-bold text-gray-800 text-sm mb-2 pb-2 border-b border-gray-100">Demande Intervention</h3>
-          <div className="space-y-1.5">
-            {[
-              ['Urgence', di.urgence],
-              ['Statut', di.statut],
-              ['Déclarant', di.declarant],
-              ['Email', di.email_declarant],
-            ].map(([label, val]) => (
-              <div key={label as string} className="flex justify-between text-xs">
-                <span className="text-gray-400">{label}</span>
-                <span className="font-medium text-gray-800">{val || '—'}</span>
+        {ot.type_ot === 'PREDICTIF' ? (
+          <div className="bg-gray-50 rounded-xl border border-dashed border-gray-300 px-4 py-3 opacity-70">
+            <h3 className="font-bold text-gray-500 text-sm mb-2 pb-2 border-b border-gray-200">
+              Demande Intervention
+            </h3>
+            <div className="flex flex-col items-center justify-center h-[calc(100%-2rem)] text-center py-4">
+              <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center mb-2">
+                <Wrench size={16} className="text-gray-400" />
               </div>
-            ))}
-            <div className="pt-1.5 border-t border-gray-100">
-              <p className="text-[10px] text-gray-400 mb-0.5 font-semibold">Description</p>
-              <p className="text-gray-600 text-xs leading-relaxed">{di.description || '—'}</p>
+              <p className="text-xs font-semibold text-gray-500">Non applicable</p>
+              <p className="text-[11px] text-gray-400 mt-1 leading-snug">
+                Cet OT est <span className="font-semibold">prédictif</span> — il provient d'une prédiction ML et n'est pas associé à une demande d'intervention.
+              </p>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
+            <h3 className="font-bold text-gray-800 text-sm mb-2 pb-2 border-b border-gray-100">Demande Intervention</h3>
+            <div className="space-y-1.5">
+              {[
+                ['Urgence', di.urgence],
+                ['Statut', di.statut],
+                ['Déclarant', di.declarant],
+                ['Email', di.email_declarant],
+              ].map(([label, val]) => (
+                <div key={label as string} className="flex justify-between text-xs">
+                  <span className="text-gray-400">{label}</span>
+                  <span className="font-medium text-gray-800">{val || '—'}</span>
+                </div>
+              ))}
+              <div className="pt-1.5 border-t border-gray-100">
+                <p className="text-[10px] text-gray-400 mb-0.5 font-semibold">Description</p>
+                <p className="text-gray-600 text-xs leading-relaxed">{di.description || '—'}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
           <h3 className="font-bold text-gray-800 text-sm mb-2 pb-2 border-b border-gray-100">Intervention</h3>

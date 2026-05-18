@@ -11,10 +11,17 @@ from models.intervention import Intervention, TypeTravail, StatutValidation
 from models.stock        import PieceStock, ComposanteStock, ReservationPiece, StatutReservation
 from models.prediction   import Prediction, StatutPrediction
 
-# ── Historique SAP/CSV (données pour le ML et le dashboard) ──────────
+# ── Historique SAP/CSV (données CORR uniquement, pour le ML) ──────────
 from models.historique_interventions import (
     HistoriqueIntervention,
     TypeTravailHistorique,
+)
+
+# ── Historique complet PREV + CORR (pour le dashboard historique) ─────
+from models.prev_corr import (
+    PrevCorr,
+    TypeTravailPrevCorr,
+    JobClassPrevCorr,
 )
 
 # ── Archives opérationnelles (interventions validées par le méthodiste) ──

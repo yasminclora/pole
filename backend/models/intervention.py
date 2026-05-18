@@ -9,7 +9,8 @@ import enum
 
 
 class TypeTravail(str, enum.Enum):
-    CORRECTIF     = "CORRECTIF"      # réparation corrective
+    CORRECTIF     = "CORRECTIF"      # réparation corrective (depuis DI)
+    PREDICTIF     = "PREDICTIF"      # intervention prédictive (depuis ML)
     VERIFICATION  = "VERIFICATION"   # juste vérifier
     NETTOYAGE     = "NETTOYAGE"      # nettoyage
     REMPLACEMENT  = "REMPLACEMENT"   # remplacer la composante
@@ -51,7 +52,8 @@ class Intervention(Base):
                              nullable=False)
 
     # Détails du travail effectué
-    type_travail    = Column(SAEnum(TypeTravail), nullable=True)
+    # Stocke CORRECTIF / PREDICTIF / VERIFICATION / NETTOYAGE / REMPLACEMENT / REPARATION / REGLAGE
+    type_travail    = Column(String(30), nullable=True)
     description_travail = Column(Text, nullable=False)
     observations    = Column(Text, nullable=True)
 

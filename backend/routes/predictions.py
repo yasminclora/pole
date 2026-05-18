@@ -56,7 +56,7 @@ router = APIRouter(prefix="/predictions", tags=["Prédictions"])
 def lancer_prediction(
     body:         LancerPredictionRequest,
     db:           Session = Depends(get_db),
-    current_user: dict    = Depends(require_roles("METHODISTE", "ADMIN")),
+    current_user: dict    = Depends(require_roles("METHODISTE")),
 ):
     """
     Pipeline ML : 1 prédiction / composant test (33), model_type OBLIGATOIRE.

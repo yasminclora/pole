@@ -354,8 +354,8 @@ def _serialize_reservation(res: ReservationPiece, db: Session = None) -> dict:
             if ot.date_prevue:
                 date_prevue = ot.date_prevue.isoformat()
             numero_ot   = ot.numero_ot
-            ot_statut   = ot.statut.value if ot.statut else None
-            ot_priorite = ot.priorite.value if ot.priorite else None
+            ot_statut   = ot.statut if ot.statut else None
+            ot_urgence = ot.urgence if ot.urgence else None
             if ot.equipement:
                 equipement_code        = ot.equipement.equipment_code
                 equipement_description = ot.equipement.description

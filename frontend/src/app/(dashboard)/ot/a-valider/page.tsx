@@ -13,7 +13,6 @@ interface OT {
   numero_ot: string
   type_ot: string
   classe: string
-  priorite: string
   statut: string
   description: string
   date_prevue?: string | null
@@ -142,15 +141,9 @@ export default function AValiderOTPage() {
     }
   }
 
-  // Filtrer pour CE : seulement les OT de SON équipe (même id_equipe que le CE)
-  const otsAValiderCE = ots.filter(o => {
-    if (o.statut !== 'TERMINE') return false
-    // Si CE, filtrer par son équipe
-    if (role === 'CHEF_EQUIPE' && idEquipe) {
-      return o.assigne?.id_equipe === idEquipe
-    }
-    return true
-  })
+  // Tous les chefs d'équipe du pôle voient les OT terminés (cohérent avec la notification backend).
+  // L'API /ot/?id_pole=X filtre déjà par pôle ; on garde tous les OT TERMINE pour validation.
+  const otsAValiderCE = ots.filter(o => o.statut === 'TERMINE')
   
   const otsAValiderHSE = ots.filter(o => o.statut === 'VALIDE_CE')
   
@@ -174,19 +167,19 @@ export default function AValiderOTPage() {
       o.assigne?.nom?.toLowerCase().includes(q)
   })
 
-  const peutValiderCE = role === 'CHEF_EQUIPE' || role === 'CHEF_POLE'
-  const peutValiderHSE = role === 'HSE' || role === 'ADMIN'
-  const peutArchiver = role === 'METHODISTE' || role === 'ADMIN'
+  const peutValiderCE  = role === 'CHEF_EQUIPE'              // uniquement le chef d'équipe valide CE
+  const peutValiderHSE = role === 'HSE'    || role === 'ADMIN'
+  const peutArchiver   = role === 'METHODISTE' || role === 'ADMIN'
 
   // Export functions
   const exportToCSV = () => {
-    const data = otsFiltrees
-    const headers = ['N° OT', 'Type', 'Classe', 'Priorité', 'Statut', 'Équipement', 'Assigné', 'Date prévue']
+    // Exporte uniquement les OT en cours de validation (CE + HSE + à archiver)
+    const data = [...otsAValiderCE, ...otsAValiderHSE, ...otsAArchiver]
+    const headers = ['N° OT', 'Type', 'Classe', 'Statut', 'Équipement', 'Assigné', 'Date prévue']
     const rows = data.map(o => [
       o.numero_ot,
       o.type_ot,
       o.classe,
-      o.priorite,
       o.statut,
       o.equipement?.equipment_code || '',
       o.assigne?.nom || '',
@@ -292,7 +285,6 @@ export default function AValiderOTPage() {
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Équipement</th>
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Assigné à</th>
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Validé CE</th>
-                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Priorité</th>
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Date</th>
                     <th className="px-3 py-2 text-right text-[10px] font-bold uppercase text-blue-100 pr-3">Action</th>
                   </tr>
@@ -307,7 +299,6 @@ export default function AValiderOTPage() {
                       </td>
                       <td className="px-3 py-3 text-sm">{ot.assigne?.nom || '—'}</td>
                       <td className="px-3 py-3 text-xs text-green-600">✓ Validée</td>
-                      <td className="px-3 py-3"><UrgBadge v={ot.priorite}/></td>
                       <td className="px-3 py-3 text-xs text-gray-500">{fmtDate(ot.created_at)}</td>
                       <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
@@ -352,7 +343,6 @@ export default function AValiderOTPage() {
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">N° OT</th>
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Équipement</th>
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Assigné à</th>
-                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Priorité</th>
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase text-blue-100">Date</th>
                     <th className="px-3 py-2 text-right text-[10px] font-bold uppercase text-blue-100 pr-3">Action</th>
                   </tr>
@@ -372,7 +362,6 @@ export default function AValiderOTPage() {
                         <p className="text-xs text-gray-400">{ot.equipement?.description}</p>
                       </td>
                       <td className="px-3 py-3 text-sm">{ot.assigne?.nom || '—'}</td>
-                      <td className="px-3 py-3"><UrgBadge v={ot.priorite}/></td>
                       <td className="px-3 py-3 text-xs text-gray-500">{fmtDate(ot.created_at)}</td>
                       <td className="px-3 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
@@ -448,79 +437,16 @@ export default function AValiderOTPage() {
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-          <FileText size={20} className="text-[#003B7A]"/>
-          <h2 className="font-bold text-gray-900">Tous les Ordres de Travail</h2>
-        </div>
-        
-        {loading ? (
-          <div className="flex items-center justify-center py-12 gap-3">
-            <Loader2 size={24} className="animate-spin text-[#003B7A]"/>
-            <span className="text-sm text-gray-400">Chargement...</span>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead style={{backgroundColor:'#003B7A'}}>
-                <tr>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase text-blue-100 whitespace-nowrap">N° OT</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase text-blue-100 whitespace-nowrap">Équipement</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase text-blue-100 whitespace-nowrap">Assigné à</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase text-blue-100 whitespace-nowrap">Priorité</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase text-blue-100 whitespace-nowrap">Statut</th>
-                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase text-blue-100 whitespace-nowrap">Date</th>
-                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase text-blue-100 whitespace-nowrap pr-4">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {otsFiltrees.map(ot => (
-                  <tr key={ot.id_ot}
-                    className="hover:bg-blue-50/50 transition-colors cursor-pointer"
-                    onClick={() => router.push(`/ot/${ot.id_ot}`)}>
-                    <td className="px-3 py-4">
-                      <p className="font-mono text-sm font-bold" style={{color:'#003B7A'}}>{ot.numero_ot}</p>
-                      <p className="text-xs text-gray-400">{ot.type_ot} · {ot.classe}</p>
-                    </td>
-                    <td className="px-3 py-4 min-w-[140px]">
-                      {ot.equipement ? (
-                        <>
-                          <p className="font-mono text-xs font-semibold text-[#003B7A]">{ot.equipement.equipment_code}</p>
-                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{ot.equipement.description}</p>
-                        </>
-                      ) : <span className="text-gray-400 text-xs">—</span>}
-                    </td>
-                    <td className="px-3 py-4 text-sm text-gray-600">
-                      {ot.assigne?.nom || <span className="text-amber-500">Non assigné</span>}
-                    </td>
-                    <td className="px-3 py-4"><UrgBadge v={ot.priorite}/></td>
-                    <td className="px-3 py-4"><StatutBadge v={ot.statut}/></td>
-                    <td className="px-3 py-4 text-xs text-gray-500 whitespace-nowrap">
-                      {ot.created_at?.split('T')[0] || '—'}
-                    </td>
-                    <td className="px-4 py-4 text-right" onClick={e => e.stopPropagation()}>
-                      <button onClick={() => router.push(`/ot/${ot.id_ot}`)}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold 
-                          bg-[#003B7A] text-white hover:bg-[#002a5a] transition-all shadow-sm hover:shadow-md">
-                        <Eye size={14}/>Ouvrir
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      {/* Section "Tous les OT" supprimée — cette page n'affiche QUE les OT à valider */}
 
-        {!loading && (
-          <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-            <p className="text-sm text-gray-500">Affichage de {otsFiltrees.length} résultat{otsFiltrees.length !== 1 ? 's' : ''}</p>
-            <div className="flex gap-4 text-sm text-gray-400">
-              <span>Total: {ots.length} OT</span>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* État vide si rien à valider/archiver */}
+      {!loading && otsAValiderCE.length === 0 && otsAValiderHSE.length === 0 && otsAArchiver.length === 0 && (
+        <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center">
+          <CheckCircle size={48} className="text-emerald-300 mx-auto mb-3"/>
+          <p className="text-gray-500 font-medium">Aucun OT à valider pour le moment.</p>
+          <p className="text-xs text-gray-400 mt-1">Tu verras ici les OT qui attendent ta validation.</p>
+        </div>
+      )}
 
       {/* ─── Modal de rejet (CE ou HSE) ─── */}
       {rejectModal && (

@@ -38,7 +38,7 @@ def _resolve_pole_filter(
     """
     Retourne le nom du pôle à filtrer (texte action_entity dans historique).
     - ADMIN : peut filtrer par pole_param (ou None pour tout voir)
-    - METHODISTE / CHEF_POLE : forcé à son pôle
+    - METHODISTE : forcé à son pôle (CHEF_POLE deprecated, géré via METHODISTE)
     - Autres : exception (403)
     """
     role = _normalize_role(current_user.get("role"))
@@ -46,7 +46,7 @@ def _resolve_pole_filter(
     if role == "ADMIN":
         return pole_param.strip() if pole_param else None
 
-    if role in ("METHODISTE", "CHEF_POLE"):
+    if role in ("METHODISTE", "CHEF_POLE"):   # CHEF_POLE legacy compat
         id_pole = current_user.get("id_pole")
         if not id_pole:
             return None

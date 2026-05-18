@@ -311,7 +311,7 @@ export default function ListeUtilisateursPage() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {(authUser?.role === 'ADMIN' || authUser?.role === 'METHODISTE' || authUser?.role === 'CHEF_POLE') && (
+          {(authUser?.role === 'ADMIN' || authUser?.role === 'METHODISTE' || authUser?.role === 'METHODISTE') && (
             <button onClick={imprimer}
               className="flex items-center gap-2 px-4 py-2 rounded-xl border
                          border-[#003B7A] text-[#003B7A] bg-blue-50

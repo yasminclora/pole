@@ -15,11 +15,24 @@ const CLASSES = [
   { value: 'GLOBALE', label: 'Electro-mecano' },
 ]
 
-const PRIORITES = [
-  { value: 'NORMALE', label: 'Normale', color: 'bg-blue-100 text-blue-600' },
-  { value: 'HAUTE', label: 'Haute', color: 'bg-orange-100 text-orange-600' },
-  { value: 'CRITIQUE', label: 'Critique', color: 'bg-red-100 text-red-600' },
+// Niveau d'urgence : on garde le terme "niveau" cohérent avec la DI du mécanicien.
+// Backend mappe automatiquement NIVEAU_1/2/3 → priorité OT (NORMALE/HAUTE/CRITIQUE).
+const NIVEAUX_URGENCE = [
+  { value: 'NIVEAU_1', label: 'Niveau 1 — Faible', color: 'bg-green-100 text-green-700' },
+  { value: 'NIVEAU_2', label: 'Niveau 2 — Moyen',  color: 'bg-orange-100 text-orange-700' },
+  { value: 'NIVEAU_3', label: 'Niveau 3 — Élevé',  color: 'bg-red-100 text-red-700' },
 ]
+
+// Mapping des valeurs legacy de la DI vers NIVEAU_1/2/3 (pour pré-remplir)
+const URGENCE_TO_NIVEAU: Record<string, string> = {
+  NIVEAU_1: 'NIVEAU_1',
+  NIVEAU_2: 'NIVEAU_2',
+  NIVEAU_3: 'NIVEAU_3',
+  FAIBLE  : 'NIVEAU_1',
+  NORMALE : 'NIVEAU_1',
+  HAUTE   : 'NIVEAU_2',
+  CRITIQUE: 'NIVEAU_3',
+}
 
 const URGENCE_LABELS: Record<string, { label: string; color: string }> = {
   NIVEAU_1: { label: 'Niveau 1', color: 'text-green-600' },
@@ -64,7 +77,7 @@ export default function ValiderDIPage() {
   const refreshDICount = useDIChangeRefresh()
 
   const [classe, setClasse] = useState('MECANIQUE')
-  const [priorite, setPriorite] = useState('NORMALE')
+  const [priorite, setPriorite] = useState('NIVEAU_1')   // niveau d'urgence (NIVEAU_1/2/3)
   const [description, setDescription] = useState('')
   const [datePrevue, setDatePrevue] = useState('')
   const [duree, setDuree] = useState('')
@@ -415,7 +428,10 @@ const handleValider = async () => {
                         <td className="no-print px-4 py-3"><div className="flex items-center justify-center gap-2">
                           <button onClick={() => handleShowDetail(di)} className="p-1.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200"><Eye size={14}/></button>
                           {!isVerifie && <button onClick={() => handleVerifier(di)} className="px-2 py-1 rounded bg-amber-100 text-amber-600 text-xs font-medium hover:bg-amber-200">Verifier</button>}
-                          <button onClick={() => setSelectedDI(di)} disabled={!isVerifie} className={`px-2 py-1 rounded text-xs font-medium ${isVerifie ? 'bg-[#003B7A] text-white hover:bg-[#002a5a]' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>Valider</button>
+                          <button onClick={() => {
+  setSelectedDI(di)
+  setPriorite(URGENCE_TO_NIVEAU[di.urgence] ?? 'NIVEAU_1')
+}} disabled={!isVerifie} className={`px-2 py-1 rounded text-xs font-medium ${isVerifie ? 'bg-[#003B7A] text-white hover:bg-[#002a5a]' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>Valider</button>
                         </div></td>
                       </tr>
                     )
@@ -458,8 +474,33 @@ const handleValider = async () => {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-semibold text-gray-700 block mb-2">Priorite</label>
-                <select value={priorite} onChange={e => setPriorite(e.target.value)} className="w-full px-3 py-2 text-sm border rounded-lg">{PRIORITES.map(p => (<option key={p.value} value={p.value}>{p.label}</option>))}</select>
+                <label className="text-sm font-semibold text-gray-700 block mb-2">
+                  Niveau d'urgence
+                  <span className="text-[10px] font-normal text-gray-400 ml-2">
+                    (pré-rempli depuis la DI · modifiable)
+                  </span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {NIVEAUX_URGENCE.map(n => (
+                    <button
+                      key={n.value}
+                      type="button"
+                      onClick={() => setPriorite(n.value)}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold border-2 transition-all ${
+                        priorite === n.value
+                          ? `border-[#003B7A] ${n.color}`
+                          : 'border-gray-200 text-gray-500 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      {n.label}
+                    </button>
+                  ))}
+                </div>
+                {selectedDI.urgence && (
+                  <p className="text-[10px] text-gray-400 mt-1.5">
+                    Niveau initial déclaré par le mécanicien : <strong>{URGENCE_LABELS[selectedDI.urgence]?.label ?? selectedDI.urgence}</strong>
+                  </p>
+                )}
               </div>
               <div><label className="text-sm font-semibold text-gray-700 block mb-2">Description OT</label><textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="w-full px-3 py-2 text-sm border rounded-lg"/></div>
               <div className="grid grid-cols-2 gap-4">

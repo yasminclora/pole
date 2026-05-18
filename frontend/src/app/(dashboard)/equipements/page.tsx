@@ -9,25 +9,24 @@ import {
   Loader2, Plus, Search, ChevronRight, ChevronLeft,
   Factory, Settings, Calendar, Layers,
   LayoutGrid, List, Filter, Activity,
-  AlertTriangle, Wrench
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────────
 
 interface Machine {
-  id_equipement : number
-  equipment_code: string
-  description   : string
+  id_equipement  : number
+  equipment_code : string
+  description    : string
   hierarchy_level: number
-  nom_pole?     : string
-  nom_zone?     : string
-  install_date? : string
-  status        : string
-  nb_enfants    : number
+  nom_pole?      : string
+  nom_zone?      : string
+  install_date?  : string
+  status         : string
+  nb_enfants     : number
 }
 
 interface Zone {
-  id_zone : number
+  id_zone  : number
   code_zone: string
   nom_zone : string
 }
@@ -40,33 +39,9 @@ interface PaginationData {
   total_pages : number
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<string, { label: string; cls: string; dot: string }> = {
-  NORMAL    : { label: 'Normal',      cls: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300',   dot: 'bg-green-500'  },
-  EN_PANNE  : { label: 'En panne',    cls: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300',           dot: 'bg-red-500'    },
-  ARRETE    : { label: 'Arrêté',      cls: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300', dot: 'bg-orange-500' },
-  MAINTENANCE:{ label: 'Maintenance', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',   dot: 'bg-amber-500'  },
-}
-
-function getStatus(s: string) {
-  return STATUS_CONFIG[s] ?? { label: s, cls: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' }
-}
-
-// barre colorée en haut de la carte selon statut
-const STATUS_TOP: Record<string, string> = {
-  NORMAL    : 'bg-green-500',
-  EN_PANNE  : 'bg-red-500',
-  ARRETE    : 'bg-orange-500',
-  MAINTENANCE:'bg-amber-500',
-}
-
 // ─── Composant carte grille ───────────────────────────────────────────
 
 function MachineCard({ machine, onClick }: { machine: Machine; onClick: () => void }) {
-  const st = getStatus(machine.status)
-  const topBar = STATUS_TOP[machine.status] ?? 'bg-gray-400'
-
   return (
     <div
       onClick={onClick}
@@ -76,8 +51,8 @@ function MachineCard({ machine, onClick }: { machine: Machine; onClick: () => vo
                  hover:border-blue-300 dark:hover:border-blue-700
                  hover:shadow-md transition-all group"
     >
-      {/* barre statut en haut */}
-      <div className={`h-1 w-full ${topBar}`} />
+      {/* barre bleue en haut */}
+      <div className="h-1 w-full bg-blue-500" />
 
       <div className="p-5">
         {/* Header */}
@@ -86,11 +61,6 @@ function MachineCard({ machine, onClick }: { machine: Machine; onClick: () => vo
                           flex items-center justify-center flex-shrink-0">
             <Factory size={17} className="text-blue-600 dark:text-blue-400" />
           </div>
-          <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full
-                            text-xs font-medium ${st.cls}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
-            {st.label}
-          </span>
         </div>
 
         {/* Code */}
@@ -145,24 +115,15 @@ function MachineCard({ machine, onClick }: { machine: Machine; onClick: () => vo
 // ─── Composant ligne liste ────────────────────────────────────────────
 
 function MachineRow({ machine, onClick }: { machine: Machine; onClick: () => void }) {
-  const st = getStatus(machine.status)
-  const borderLeft: Record<string, string> = {
-    NORMAL    : 'border-l-green-500',
-    EN_PANNE  : 'border-l-red-500',
-    ARRETE    : 'border-l-orange-500',
-    MAINTENANCE:'border-l-amber-500',
-  }
-  const bl = borderLeft[machine.status] ?? 'border-l-gray-300'
-
   return (
     <div
       onClick={onClick}
-      className={`bg-white dark:bg-gray-900
-                  border border-gray-200 dark:border-gray-800
-                  border-l-2 ${bl}
-                  rounded-xl p-4 cursor-pointer flex items-center gap-4
-                  hover:border-blue-300 dark:hover:border-blue-700
-                  hover:shadow-sm transition-all group`}
+      className="bg-white dark:bg-gray-900
+                 border border-gray-200 dark:border-gray-800
+                 border-l-2 border-l-blue-500
+                 rounded-xl p-4 cursor-pointer flex items-center gap-4
+                 hover:border-blue-300 dark:hover:border-blue-700
+                 hover:shadow-sm transition-all group"
     >
       <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-900/20
                       flex items-center justify-center flex-shrink-0">
@@ -170,11 +131,9 @@ function MachineRow({ machine, onClick }: { machine: Machine; onClick: () => voi
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <p className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
-            {machine.equipment_code}
-          </p>
-        </div>
+        <p className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 mb-0.5">
+          {machine.equipment_code}
+        </p>
         <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
           {machine.description}
         </p>
@@ -190,12 +149,6 @@ function MachineRow({ machine, onClick }: { machine: Machine; onClick: () => voi
           </span>
         </div>
       </div>
-
-      <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full
-                        text-xs font-medium flex-shrink-0 ${st.cls}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
-        {st.label}
-      </span>
 
       <ChevronRight
         size={15}
@@ -221,25 +174,16 @@ export default function EquipementsPage() {
   const [view,         setView]         = useState<'grid' | 'list'>('grid')
   const [zones,        setZones]        = useState<Zone[]>([])
   const [selectedZone, setSelectedZone] = useState<number | ''>('')
-  const [selectedStatus, setSelectedStatus] = useState('')
-
-  // ── stats dérivées ──
-  const stats = {
-    total      : pagination.total,
-    normal     : pagination.data.filter(m => m.status === 'NORMAL').length,
-    panne      : pagination.data.filter(m => m.status === 'EN_PANNE').length,
-    maintenance: pagination.data.filter(m => m.status === 'MAINTENANCE').length,
-  }
 
   const charger = useCallback(async (page = 1) => {
     setLoading(true)
     try {
       const data = await equipementsService.listeMachines({
-        id_pole : isAdmin ? undefined : idPole,
-        id_zone : selectedZone || undefined,
-        search  : search || undefined,
+        id_pole: isAdmin ? undefined : idPole,
+        id_zone: selectedZone || undefined,
+        search : search || undefined,
         page,
-        limit   : 12,
+        limit  : 12,
       })
       setPagination({
         data       : data.data        || [],
@@ -252,7 +196,6 @@ export default function EquipementsPage() {
   }, [isAdmin, idPole, selectedZone, search])
 
   useEffect(() => {
-    // LOGIQUE ROLE : zones uniquement pour l'admin
     if (isAdmin) {
       zonesService.lister().then(setZones).catch(() => setZones([]))
     }
@@ -267,11 +210,6 @@ export default function EquipementsPage() {
   const goToPage = (page: number) => {
     if (page >= 1 && page <= pagination.total_pages) charger(page)
   }
-
-  // filtrage local du statut (les autres filtres passent par l'API)
-  const displayedData = selectedStatus
-    ? pagination.data.filter(m => m.status === selectedStatus)
-    : pagination.data
 
   return (
     <div className="space-y-5">
@@ -314,7 +252,6 @@ export default function EquipementsPage() {
             </button>
           </div>
 
-          {/* LOGIQUE ROLE : bouton Ajouter uniquement admin */}
           {isAdmin && (
             <button
               onClick={() => router.push('/equipements/ajouter')}
@@ -328,61 +265,21 @@ export default function EquipementsPage() {
         </div>
       </div>
 
-      {/* ── Cartes stats ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          {
-            label: 'Total',
-            value: pagination.total,
-            icon : <Activity size={14} />,
-            color: 'text-blue-600 dark:text-blue-400',
-            bg   : 'bg-blue-50 dark:bg-blue-900/20',
-            dot  : 'bg-blue-500',
-          },
-          {
-            label: 'En service',
-            value: pagination.data.filter(m => m.status === 'NORMAL').length,
-            icon : <Activity size={14} />,
-            color: 'text-green-600 dark:text-green-400',
-            bg   : 'bg-green-50 dark:bg-green-900/20',
-            dot  : 'bg-green-500',
-          },
-          {
-            label: 'En panne',
-            value: pagination.data.filter(m => m.status === 'EN_PANNE').length,
-            icon : <AlertTriangle size={14} />,
-            color: 'text-red-600 dark:text-red-400',
-            bg   : 'bg-red-50 dark:bg-red-900/20',
-            dot  : 'bg-red-500',
-          },
-          {
-            label: 'Maintenance',
-            value: pagination.data.filter(m => m.status === 'MAINTENANCE').length,
-            icon : <Wrench size={14} />,
-            color: 'text-amber-600 dark:text-amber-400',
-            bg   : 'bg-amber-50 dark:bg-amber-900/20',
-            dot  : 'bg-amber-500',
-          },
-        ].map(s => (
-          <div
-            key={s.label}
-            className="bg-white dark:bg-gray-900 border border-gray-200
-                       dark:border-gray-800 rounded-xl p-4"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <div className={`p-1.5 rounded-lg ${s.bg} ${s.color}`}>
-                {s.icon}
-              </div>
-              <span className="text-xs text-gray-400">{s.label}</span>
-            </div>
-            <p className="text-2xl font-semibold text-gray-900 dark:text-white">
-              {s.value}
-            </p>
+      {/* ── Carte stat Total uniquement ── */}
+      <div className="bg-white dark:bg-gray-900 border border-gray-200
+                      dark:border-gray-800 rounded-xl p-4 w-fit">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+            <Activity size={14} />
           </div>
-        ))}
+          <span className="text-xs text-gray-400">Total machines</span>
+        </div>
+        <p className="text-2xl font-semibold text-gray-900 dark:text-white">
+          {pagination.total}
+        </p>
       </div>
 
-      {/* ── Filtres ── */}
+      {/* ── Filtres (sans statut) ── */}
       <div className="flex flex-col sm:flex-row gap-3">
         <form onSubmit={handleSearch} className="flex-1">
           <div className="relative">
@@ -403,7 +300,6 @@ export default function EquipementsPage() {
           </div>
         </form>
 
-        {/* LOGIQUE ROLE : filtre zone uniquement admin */}
         {isAdmin && zones.length > 0 && (
           <select
             value={selectedZone}
@@ -421,21 +317,6 @@ export default function EquipementsPage() {
             ))}
           </select>
         )}
-
-        {/* Filtre statut — visible par tous */}
-        <select
-          value={selectedStatus}
-          onChange={e => setSelectedStatus(e.target.value)}
-          className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                     bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm
-                     focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">Tous les statuts</option>
-          <option value="NORMAL">Normal</option>
-          <option value="EN_PANNE">En panne</option>
-          <option value="MAINTENANCE">Maintenance</option>
-          <option value="ARRETE">Arrêté</option>
-        </select>
       </div>
 
       {/* ── Contenu ── */}
@@ -443,14 +324,13 @@ export default function EquipementsPage() {
         <div className="flex items-center justify-center py-20">
           <Loader2 size={28} className="text-blue-500 animate-spin" />
         </div>
-      ) : displayedData.length === 0 ? (
+      ) : pagination.data.length === 0 ? (
         <div className="text-center py-20 bg-white dark:bg-gray-900
                         border border-gray-200 dark:border-gray-800 rounded-2xl">
           <Factory size={36} className="text-gray-300 dark:text-gray-600 mx-auto mb-3" />
           <p className="text-gray-500 dark:text-gray-400 font-medium text-sm">
             Aucune machine trouvée
           </p>
-          {/* LOGIQUE ROLE : bouton ajouter uniquement admin */}
           {isAdmin && (
             <button
               onClick={() => router.push('/equipements/ajouter')}
@@ -465,7 +345,7 @@ export default function EquipementsPage() {
         <>
           {view === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {displayedData.map(m => (
+              {pagination.data.map(m => (
                 <MachineCard
                   key={m.id_equipement}
                   machine={m}
@@ -475,7 +355,7 @@ export default function EquipementsPage() {
             </div>
           ) : (
             <div className="space-y-2.5">
-              {displayedData.map(m => (
+              {pagination.data.map(m => (
                 <MachineRow
                   key={m.id_equipement}
                   machine={m}
@@ -501,8 +381,8 @@ export default function EquipementsPage() {
 
               {Array.from({ length: Math.min(5, pagination.total_pages) }, (_, i) => {
                 let pageNum: number
-                if (pagination.total_pages <= 5)          pageNum = i + 1
-                else if (pagination.page <= 3)            pageNum = i + 1
+                if (pagination.total_pages <= 5)        pageNum = i + 1
+                else if (pagination.page <= 3)          pageNum = i + 1
                 else if (pagination.page >= pagination.total_pages - 2)
                   pageNum = pagination.total_pages - 4 + i
                 else pageNum = pagination.page - 2 + i

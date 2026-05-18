@@ -53,7 +53,7 @@ const avatarColors = [
 export default function VueEquipesPage() {
   const authUser     = useSelector((s: RootState) => s.auth.user)
   const isAdmin      = authUser?.role === 'ADMIN'
-  const isChefPole   = authUser?.role === 'CHEF_POLE'
+  const isChefPole   = authUser?.role === 'METHODISTE'
   const isChefEquipe = authUser?.role === 'CHEF_EQUIPE'
 
   const [equipes,    setEquipes]    = useState<Equipe[]>([])

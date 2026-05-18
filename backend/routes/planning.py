@@ -202,9 +202,10 @@ async def creer_demande(data: dict, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(demande)
 
+        # CHEF_POLE deprecated → METHODISTE pilote désormais les pôles
         chef_pole = db.query(Utilisateur).filter_by(
             id_pole = equipe_demandeur.id_pole,
-            role    = "CHEF_POLE"
+            role    = "METHODISTE"
         ).first()
 
         await manager.broadcast({

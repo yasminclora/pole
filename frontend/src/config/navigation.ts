@@ -27,7 +27,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title       : 'Tableau de bord',
     icon        : LayoutDashboard,
-    allowedRoles: ['ADMIN','METHODISTE','CHEF_POLE','CHEF_EQUIPE',
+    allowedRoles: ['ADMIN','METHODISTE','CHEF_EQUIPE',
                    'MECANICIEN','TECHNICIEN','HSE','GESTIONNAIRE_STOCK'],
     items: [],
   },
@@ -35,14 +35,14 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title       : 'Prédictions',
     icon        : TrendingUp,
-    allowedRoles: ['ADMIN', 'METHODISTE'],
+    allowedRoles: ['METHODISTE'],
     items: [
       { label: 'Lancer prédiction', href: '/predictions',
-        allowedRoles: ['ADMIN', 'METHODISTE'] },
+        allowedRoles: ['METHODISTE'] },
       { label: 'Historique', href: '/predictions/historique',
-        allowedRoles: ['ADMIN', 'METHODISTE'] },
+        allowedRoles: ['METHODISTE'] },
       { label: 'Dashboard prédictif', href: '/predictions/dashboard',
-        allowedRoles: ['ADMIN', 'METHODISTE'] },
+        allowedRoles: ['METHODISTE'] },
     ],
   },
 
@@ -59,31 +59,31 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title       : 'Gestion personnel',
     icon        : Users,
-    allowedRoles: ['ADMIN','CHEF_POLE'],
+    allowedRoles: ['ADMIN', 'METHODISTE'],
     items: [
       { label: 'Ajouter utilisateur', href: '/utilisateurs/ajout',
-        allowedRoles: ['ADMIN'] },
+        allowedRoles: ['ADMIN'] },                              // CRUD = ADMIN seul
       { label: 'Liste utilisateurs',  href: '/utilisateurs/liste',
-        allowedRoles: ['ADMIN','CHEF_POLE'] },
+        allowedRoles: ['ADMIN', 'METHODISTE'] },                // lecture pour METHODISTE
       { label: 'Analytique',          href: '/utilisateurs/analytique',
-        allowedRoles: ['ADMIN','CHEF_POLE'] },
+        allowedRoles: ['ADMIN', 'METHODISTE'] },                // lecture pour METHODISTE
     ],
   },
 
   {
     title       : 'Planning & Équipes',
     icon        : CalendarDays,
-    allowedRoles: ['ADMIN','CHEF_POLE','CHEF_EQUIPE','MECANICIEN',
+    allowedRoles: ['ADMIN','CHEF_EQUIPE','MECANICIEN',
                    'TECHNICIEN','HSE','METHODISTE'],
     items: [
       { label: 'Vue équipes',      href: '/equipes/vue',
-        allowedRoles: ['ADMIN','CHEF_POLE','CHEF_EQUIPE'] },
+        allowedRoles: ['ADMIN','CHEF_EQUIPE','METHODISTE'] },
       { label: 'Configuration',    href: '/equipes/config',
-        allowedRoles: ['CHEF_POLE'] },
+        allowedRoles: ['METHODISTE'] },
       { label: 'Demandes échange', href: '/equipes/demandes',
         allowedRoles: ['CHEF_EQUIPE'] },
       { label: 'Calendrier',       href: '/equipes/planning',
-        allowedRoles: ['ADMIN','CHEF_POLE','CHEF_EQUIPE','MECANICIEN',
+        allowedRoles: ['ADMIN','CHEF_EQUIPE','MECANICIEN',
                        'TECHNICIEN','HSE','METHODISTE'] },
     ],
   },
@@ -91,7 +91,7 @@ export const NAV_SECTIONS: NavSection[] = [
 {
   title       : 'Demandes d\'intervention',
   icon        : AlertTriangle,
-  allowedRoles: ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE', 'CHEF_POLE', 'METHODISTE', 'HSE'],
+  allowedRoles: ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE', 'METHODISTE', 'HSE'],
   items: [
     {
       label       : 'Creer une DI',
@@ -114,7 +114,7 @@ export const NAV_SECTIONS: NavSection[] = [
 {
   title       : 'Ordres de Travail',
   icon        : ClipboardList,
-  allowedRoles: ['ADMIN','METHODISTE','CHEF_POLE','CHEF_EQUIPE',
+  allowedRoles: ['ADMIN','METHODISTE','CHEF_EQUIPE',
                  'MECANICIEN','TECHNICIEN','HSE','GESTIONNAIRE_STOCK'],
   items: [
     {
@@ -125,12 +125,12 @@ export const NAV_SECTIONS: NavSection[] = [
     {
       label       : 'Liste OT',
       href        : '/ot/liste',
-      allowedRoles: ['METHODISTE', 'CHEF_POLE', 'ADMIN', 'CHEF_EQUIPE', 'HSE'],
+      allowedRoles: ['METHODISTE', 'ADMIN', 'CHEF_EQUIPE', 'HSE'],
     },
     {
       label       : 'Validation OT',
       href        : '/ot/a-valider',
-      allowedRoles: ['CHEF_EQUIPE', 'HSE', 'METHODISTE', 'CHEF_POLE', 'ADMIN'],
+      allowedRoles: ['CHEF_EQUIPE', 'HSE', 'METHODISTE', 'ADMIN'],
     },
     {
       label       : 'Archives OT',
@@ -150,12 +150,12 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title       : 'Pôles',
     icon        : Building2,
-    allowedRoles: ['ADMIN','CHEF_POLE'],
+    allowedRoles: ['ADMIN'],
     items: [
       { label: 'Ajouter pôle',    href: '/poles/ajout',
         allowedRoles: ['ADMIN'] },
       { label: 'Liste des pôles', href: '/poles/liste',
-        allowedRoles: ['ADMIN','CHEF_POLE'] },
+        allowedRoles: ['ADMIN'] },
     ],
   },
 
@@ -166,10 +166,10 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title       : 'Equipements',
     icon        : Factory,
-    allowedRoles: ['ADMIN', 'METHODISTE', 'CHEF_POLE', 'CHEF_EQUIPE'],
+    allowedRoles: ['ADMIN', 'METHODISTE', 'CHEF_EQUIPE'],
     items: [
       { label: 'Liste machines',  href: '/equipements',
-        allowedRoles: ['ADMIN', 'METHODISTE', 'CHEF_POLE', 'CHEF_EQUIPE'] },
+        allowedRoles: ['ADMIN', 'METHODISTE', 'CHEF_EQUIPE'] },
       { label: 'Ajouter machine', href: '/equipements/ajouter',
         allowedRoles: ['ADMIN'] },
     ],

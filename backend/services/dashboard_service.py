@@ -61,7 +61,7 @@ def get_ot_by_status(db: Session, id_pole: Optional[int] = None):
     if id_pole:
         q = q.filter(OrdreTravail.id_pole == id_pole)
     rows = q.group_by(OrdreTravail.statut).order_by(sa_text('count desc')).all()
-    return [{"statut": r.statut.value, "count": r.count} for r in rows]
+    return [{"statut": (r.statut.value if hasattr(r.statut, "value") else r.statut), "count": r.count} for r in rows]
 
 
 def get_di_by_status(db: Session, id_pole: Optional[int] = None):

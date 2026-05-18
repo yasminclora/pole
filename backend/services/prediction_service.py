@@ -207,8 +207,9 @@ def create_ot_predictif(db: Session, data: dict) -> dict:
     ).scalar() or 0
     numero_ot = f"OT-PREDICTIF-{annee}-{count+1:04d}"
 
-    priorite_map = {"CRITIQUE":PrioriteOT.CRITIQUE,"HAUTE":PrioriteOT.HAUTE,"NORMALE":PrioriteOT.NORMALE,"FAIBLE":PrioriteOT.FAIBLE}
     classe_map   = {"MECANIQUE":ClasseOT.MECANIQUE,"ELECTRIQUE":ClasseOT.ELECTRIQUE,"GLOBALE":ClasseOT.GLOBALE}
+    # Mapping legacy (priorite ancienne) -> NIVEAU_1/2/3
+    urgence_map_legacy = {"FAIBLE":"NIVEAU_1","NORMALE":"NIVEAU_1","HAUTE":"NIVEAU_2","CRITIQUE":"NIVEAU_3"}
 
     date_prevue = None
     if data.get("date_prevue"):
@@ -218,11 +219,15 @@ def create_ot_predictif(db: Session, data: dict) -> dict:
     id_assigne = data.get("id_assigne") or None
     statut     = StatutOT.ASSIGNE if id_assigne else StatutOT.CREE
 
+    # Accepte 'urgence' (NIVEAU_1/2/3) ou 'priorite' (legacy)
+    urgence_in = data.get("urgence") or data.get("priorite") or "NIVEAU_1"
+    urgence_val = urgence_map_legacy.get(urgence_in, urgence_in)
+
     ot = OrdreTravail(
         numero_ot        = numero_ot,
         type_ot          = TypeOT.PREDICTIF,
         classe           = classe_map.get(data.get("classe","MECANIQUE"), ClasseOT.MECANIQUE),
-        priorite         = priorite_map.get(data.get("priorite","NORMALE"), PrioriteOT.NORMALE),
+        urgence          = urgence_val,
         statut           = statut,
         id_equipement    = equip.id_equipement,
         id_pole          = equip.id_pole,
@@ -243,7 +248,8 @@ def create_ot_predictif(db: Session, data: dict) -> dict:
         "id_ot":      ot.id_ot,
         "numero_ot":  ot.numero_ot,
         "statut":     ot.statut,
-        "priorite":   ot.priorite,
+        "urgence":    ot.urgence,         # NIVEAU_1/2/3
+        "priorite":   ot.urgence,         # alias legacy (compat frontend)
         "date_prevue":str(ot.date_prevue) if ot.date_prevue else None,
         "id_assigne": ot.id_assigne,
     }

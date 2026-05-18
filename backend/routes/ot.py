@@ -306,7 +306,7 @@ def ot_to_dict(ot: OrdreTravail, db: Session) -> dict:
         
         inter_dict = {
             "id_intervention": intervention.id_intervention,
-            "type_travail": intervention.type_travail.value if intervention.type_travail else None,
+            "type_travail": intervention.type_travail if intervention.type_travail else None,
             "description_travail": intervention.description_travail,
             "observations": intervention.observations,
             "date_debut": str(intervention.date_debut) if intervention.date_debut else None,
@@ -336,7 +336,7 @@ def ot_to_dict(ot: OrdreTravail, db: Session) -> dict:
         "numero_ot": ot.numero_ot,
         "type_ot": ot.type_ot,
         "classe": ot.classe,
-        "priorite": ot.priorite,
+        "priorite": ot.urgence,
         "statut": ot.statut,
         "description": ot.description,
         "observations": ot.observations,
@@ -455,11 +455,19 @@ async def creer_ot(data: dict, db: Session = Depends(get_db)):
             except ValueError:
                 pass
 
+        # Accepte 'urgence' (nouveau) ou 'priorite' (legacy) en input, stocke en NIVEAU_1/2/3
+        priorite_legacy_map = {
+            "FAIBLE": "NIVEAU_1", "NORMALE": "NIVEAU_1",
+            "HAUTE": "NIVEAU_2",  "CRITIQUE": "NIVEAU_3",
+        }
+        urgence_in = data.get("urgence") or data.get("priorite") or "NIVEAU_1"
+        urgence_val = priorite_legacy_map.get(urgence_in, urgence_in)  # mappe legacy si besoin
+
         ot = OrdreTravail(
             numero_ot     = get_next_numero_ot(db, type_ot),
             type_ot       = type_ot,
             classe        = data.get("classe", ClasseOT.MECANIQUE),
-            priorite      = data.get("priorite", PrioriteOT.NORMALE),
+            urgence       = urgence_val,
             statut        = StatutOT.CREE,
             id_equipement = data["id_equipement"],
             id_pole       = data["id_pole"],
@@ -538,7 +546,7 @@ async def assigner_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
             "id_ot"      : ot.id_ot,
             "numero_ot"  : ot.numero_ot,
             "message"    : f"Un OT vous a ete assigne : {ot.numero_ot}",
-            "priorite"   : ot.priorite.value if ot.priorite else None,
+            "priorite"   : ot.urgence if ot.urgence else None,
             "date_prevue": str(ot.date_prevue) if ot.date_prevue else None,
         }
         await _manager.send_personal_message(user_id=ot.id_assigne, message=notif)
@@ -617,7 +625,7 @@ def peut_demarrer(id_ot: int, db: Session = Depends(get_db)):
         "raisons"      : raisons,
         "reservations" : reservs_info,
         "date_prevue"  : str(ot.date_prevue) if ot.date_prevue else None,
-        "statut_actuel": ot.statut.value if ot.statut else None,
+        "statut_actuel": ot.statut if ot.statut else None,
     }
 
 
@@ -980,10 +988,10 @@ def imprimer_liste_ot(
         except ValueError:
             pass
     if priorite and priorite.upper() not in ("TOUS", "ALL", ""):
-        try:
-            q = q.filter(OrdreTravail.priorite == PrioriteOT(priorite.upper()))
-        except ValueError:
-            pass
+        # Filtre par urgence (NIVEAU_1/2/3) — accepte aussi anciens libellés FAIBLE/.../CRITIQUE
+        legacy_map = {"FAIBLE":"NIVEAU_1","NORMALE":"NIVEAU_1","HAUTE":"NIVEAU_2","CRITIQUE":"NIVEAU_3"}
+        val = legacy_map.get(priorite.upper(), priorite.upper())
+        q = q.filter(OrdreTravail.urgence == val)
     if date_debut:
         q = q.filter(OrdreTravail.created_at >= date_debut)
     if date_fin:
@@ -1035,7 +1043,7 @@ def imprimer_liste_ot(
             e = _equipe_of(ot)
             key = e.nom_equipe if e else "Non assigné à une équipe"
         elif groupement == "priorite":
-            key = (ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—"))
+            key = (ot.urgence if hasattr(ot.urgence, "value") else str(ot.urgence or "—"))
         elif groupement == "type":
             key = (ot.type_ot.value if hasattr(ot.type_ot, "value") else str(ot.type_ot or "—"))
         elif groupement == "mois":
@@ -1078,7 +1086,7 @@ def imprimer_liste_ot(
                     machine_racine = racine_eq.equipment_code
 
             statut_v   = ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut or "")
-            priorite_v = ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—")
+            priorite_v = ot.urgence if hasattr(ot.urgence, "value") else str(ot.urgence or "—")
             type_v     = ot.type_ot.value if hasattr(ot.type_ot, "value") else str(ot.type_ot or "—")
 
             duree_str = "—"
@@ -1275,7 +1283,7 @@ def imprimer_archives_ot(
             e = _equipe_of(ot)
             key = e.nom_equipe if e else "Non assigné à une équipe"
         elif groupement == "priorite":
-            key = (ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—"))
+            key = (ot.urgence if hasattr(ot.urgence, "value") else str(ot.urgence or "—"))
         elif groupement == "mois":
             key = ot.date_archive.strftime("%Y-%m") if ot.date_archive else "Sans date"
         else:
@@ -1311,7 +1319,7 @@ def imprimer_archives_ot(
                     machine_racine = racine_eq.equipment_code
 
             statut    = ot.statut.value if hasattr(ot.statut, "value") else str(ot.statut or "")
-            priorite  = ot.priorite.value if hasattr(ot.priorite, "value") else str(ot.priorite or "—")
+            priorite  = ot.urgence if hasattr(ot.urgence, "value") else str(ot.urgence or "—")
             type_ot   = ot.type_ot.value if hasattr(ot.type_ot, "value") else str(ot.type_ot or "—")
 
             # Durée intervention

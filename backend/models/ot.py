@@ -19,6 +19,14 @@ class ClasseOT(str, enum.Enum):
     GLOBALE    = "GLOBALE"     # → les deux
 
 
+class UrgenceOT(str, enum.Enum):
+    """Niveau d'urgence d'un OT (cohérent avec UrgenceDI)."""
+    NIVEAU_1 = "NIVEAU_1"   # peu urgent
+    NIVEAU_2 = "NIVEAU_2"   # moyen
+    NIVEAU_3 = "NIVEAU_3"   # élevé
+
+
+# Alias legacy pour ne pas casser les imports existants (deprecated)
 class PrioriteOT(str, enum.Enum):
     FAIBLE    = "FAIBLE"
     NORMALE   = "NORMALE"
@@ -50,8 +58,10 @@ class OrdreTravail(Base):
     # Type et classe
     type_ot         = Column(SAEnum(TypeOT),     nullable=False)
     classe          = Column(SAEnum(ClasseOT),   nullable=False)
-    priorite        = Column(SAEnum(PrioriteOT), default=PrioriteOT.NORMALE)
-    statut          = Column(SAEnum(StatutOT),   default=StatutOT.CREE)
+    # urgence = NIVEAU_1 / NIVEAU_2 / NIVEAU_3 (cohérent avec DI.urgence)
+    urgence         = Column(String(20),         default="NIVEAU_1")
+    # Stocke CREE / ASSIGNE / EN_COURS / TERMINE / REWORK / VALIDE_CE / VALIDE_HSE / ARCHIVE / REJETE
+    statut          = Column(String(20),         default=StatutOT.CREE.value)
 
     # Équipement concerné (Level 3 ou 4 uniquement)
     id_equipement   = Column(Integer,

@@ -360,25 +360,25 @@ async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
         }
         classe = classe_map.get(str(data.get("classe", "MECANIQUE")).upper(), ClasseOT.MECANIQUE)
 
-        priorite_map = {
-            "FAIBLE"  : PrioriteOT.FAIBLE,
-            "NORMALE" : PrioriteOT.NORMALE,
-            "HAUTE"   : PrioriteOT.HAUTE,
-            "CRITIQUE": PrioriteOT.CRITIQUE,
-            "NIVEAU_1": PrioriteOT.NORMALE,
-            "NIVEAU_2": PrioriteOT.HAUTE,
-            "NIVEAU_3": PrioriteOT.CRITIQUE,
+        # Mapping unifié vers NIVEAU_1/2/3 (accepte legacy)
+        urgence_map = {
+            "FAIBLE"  : "NIVEAU_1",
+            "NORMALE" : "NIVEAU_1",
+            "HAUTE"   : "NIVEAU_2",
+            "CRITIQUE": "NIVEAU_3",
+            "NIVEAU_1": "NIVEAU_1",
+            "NIVEAU_2": "NIVEAU_2",
+            "NIVEAU_3": "NIVEAU_3",
         }
-        priorite = priorite_map.get(
-            data.get("priorite", "NORMALE"),
-            PrioriteOT.NORMALE
-        )
+        # Accepte 'urgence' (préféré) ou 'priorite' (legacy frontend)
+        urgence_in = (data.get("urgence") or data.get("priorite") or "NIVEAU_1").upper()
+        urgence = urgence_map.get(urgence_in, "NIVEAU_1")
 
         ot = OrdreTravail(
             numero_ot     = get_next_numero_ot(db, "CORRECTIF"),
             type_ot       = TypeOT.CORRECTIF,
             classe        = classe,
-            priorite      = priorite,
+            urgence       = urgence,
             statut        = StatutOT.CREE,
             id_equipement = di.id_equipement,
             id_pole       = di.id_pole,

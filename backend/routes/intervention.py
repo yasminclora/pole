@@ -282,11 +282,12 @@ async def valider_intervention(id_ot: int, data: dict, db: Session = Depends(get
                 if racine:
                     code_machine_l1 = racine.equipment_code
 
-            # Mapper TypeTravail → TypeTravailHistorique
-            tt = intervention.type_travail
-            if tt in (TypeTravail.CORRECTIF, TypeTravail.REPARATION, TypeTravail.REMPLACEMENT):
+            # Mapper TypeTravail (string) → TypeTravailHistorique
+            tt = str(intervention.type_travail or "")
+            if tt in ("CORRECTIF", "REPARATION", "REMPLACEMENT"):
                 tt_hist = TypeTravailHistorique.CORR
             else:
+                # PREDICTIF / VERIFICATION / NETTOYAGE / REGLAGE → PREV
                 tt_hist = TypeTravailHistorique.PREV
 
             realisateur = db.get(Utilisateur, intervention.id_realisateur)
