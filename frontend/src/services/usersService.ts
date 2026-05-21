@@ -55,4 +55,20 @@ export const usersService = {
     const res = await api.put(`/users/${id}/changer-mdp`, { ancien_mdp, nouveau_mdp })
     return res.data
   },
+
+  /** Upload photo de profil (multipart). Retourne { photo_url, user } */
+  uploadPhoto: async (id: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await api.post(`/users/${id}/photo`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return res.data as { photo_url: string; user: any }
+  },
+
+  /** Supprime la photo de profil */
+  supprimerPhoto: async (id: number) => {
+    const res = await api.delete(`/users/${id}/photo`)
+    return res.data as { message: string; user: any }
+  },
 }

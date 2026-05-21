@@ -39,6 +39,7 @@ class Utilisateur(Base):
     id_pole        = Column(Integer, ForeignKey("poles.id_pole"),    nullable=True)
     id_equipe      = Column(Integer, ForeignKey("equipes.id_equipe"), nullable=True)
     shift          = Column(Enum(ShiftEnum), nullable=True)  # Schedule shift
+    photo_url      = Column(String(255), nullable=True)  # URL/chemin de la photo de profil
 
     pole   = relationship("Pole",   back_populates="utilisateurs")
     equipe = relationship("Equipe", back_populates="utilisateurs")

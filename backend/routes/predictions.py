@@ -1073,8 +1073,6 @@ def _check_stock(db: Session, equipment_code: str) -> Optional[dict]:
                 "quantite":       int(piece.quantite or 0),
                 "seuil_alerte":   int(piece.seuil_alerte or 0),
                 "alerte":         alerte,
-                "emplacement":    piece.emplacement,
-                "unite":          piece.unite,
                 "quantite_type":  int(cs.quantite_type or 1),
             })
 

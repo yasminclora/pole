@@ -16,7 +16,7 @@ from models.pole  import Pole
 from models.equipe import Equipe
 
 
-EQUIPES_STANDARD = ["Equipe Alpha", "Equipe Bravo", "Equipe Charlie", "Equipe Delta"]
+EQUIPES_STANDARD = ["Alpha", "Bravo", "Charlie", "Delta"]
 
 
 def run():

@@ -30,6 +30,12 @@ print(f"🚀 CORS Config: origins={ALLOWED_ORIGINS}, credentials={_allow_credent
 
 app = FastAPI(title="Optima Maintenance API")
 
+# ── Fichiers statiques (photos profil utilisateurs) ──────────────────
+from fastapi.staticfiles import StaticFiles
+_UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(os.path.join(_UPLOADS_DIR, "avatars"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_UPLOADS_DIR), name="uploads")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins     = ALLOWED_ORIGINS,

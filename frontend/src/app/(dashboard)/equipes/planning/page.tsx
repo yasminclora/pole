@@ -11,7 +11,7 @@ import {
 } from '@/utils/planning'
 import {
   ChevronLeft, ChevronRight, Loader2,
-  Calendar, Search, Download
+  Calendar, Search, Download, RefreshCw
 } from 'lucide-react'
 
 interface Equipe {
@@ -60,7 +60,6 @@ export default function PlanningPage() {
   useEffect(() => { charger() }, [])
 
   useWebSocket((msg) => {
-    // Mise à jour config → recalcul automatique sur toutes les pages
     if (msg.type === 'CONFIG_PLANNING_MISE_A_JOUR') {
       if (msg.payload?.equipes) {
         setEquipes(prev => prev.map(eq => {
@@ -75,7 +74,6 @@ export default function PlanningPage() {
         }))
       }
     }
-    // Échange accepté → recalcul
     if (msg.type === 'DEMANDE_ECHANGE_ACCEPTEE') {
       charger()
     }
@@ -174,58 +172,55 @@ export default function PlanningPage() {
         <span className={`font-bold ${compact ? 'text-xs' : 'text-sm'} ${info.couleur}`}>
           {info.lettre}
         </span>
-        {!compact && (
-          <span className={`text-[10px] ${info.couleur} opacity-70`}>
-            {info.icone}
-          </span>
-        )}
       </div>
     )
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
 
-      {/* En-tête */}
-      <div className="flex flex-col sm:flex-row sm:items-center
-                      justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-600
-                          flex items-center justify-center">
-            <Calendar size={18} className="text-white"/>
+      {/* HERO BANNER — STYLE GLOBAL OPTIMA PREMIUM */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0f2547] to-[#1a3a66] shadow-lg border border-[#1e3e6b]">
+        <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '20px 20px' }} />
+        
+        <div className="relative px-8 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center shadow-inner">
+              <Calendar className="w-6 h-6 text-white" />
+            </div>
+            <div>
+            
+              <h1 className="text-2xl font-serif font-bold text-white tracking-wide">
+                Calendrier des Équipes
+              </h1>
+             
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Calendrier équipes
-            </h1>
-            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">
-              {isAdmin ? 'Vue globale' : 'Votre pôle'}
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <button onClick={exportCSV}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl border
-                       border-gray-200 dark:border-gray-700
-                       text-gray-600 dark:text-gray-400 text-sm
-                       hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
-            <Download size={14}/>
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
+          {/* Actions d'en-tête (Export & Vue) ajustées pour s'intégrer harmonieusement */}
+          <div className="flex items-center gap-3 self-end md:self-auto">
+            <button onClick={exportCSV}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-white text-sm font-medium transition-all">
+              <Download size={14}/>
+              <span>Export CSV</span>
+            </button>
 
-          <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
-            {(['semaine', 'mois'] as const).map(v => (
-              <button key={v} onClick={() => setVue(v)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium
-                            transition-all ${
-                  vue === v
-                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400'
-                }`}>
-                {v.charAt(0).toUpperCase() + v.slice(1)}
-              </button>
-            ))}
+            <div className="flex bg-black/20 p-1 rounded-xl border border-white/5">
+              {(['semaine', 'mois'] as const).map(v => (
+                <button key={v} onClick={() => setVue(v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                    vue === v
+                      ? 'bg-white text-slate-900 shadow-md'
+                      : 'text-slate-300 hover:text-white'
+                  }`}>
+                  {v === 'semaine' ? 'Semaine' : 'Mois'}
+                </button>
+              ))}
+            </div>
+
+            <button onClick={charger} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all">
+              <RefreshCw className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -289,7 +284,7 @@ export default function PlanningPage() {
             className={`inline-flex items-center gap-1.5 px-2.5 py-1
                        rounded-lg text-xs font-medium border
                        ${q.bg} ${q.couleur} ${q.border}`}>
-            {q.icone} {q.label}
+            {q.label}
           </span>
         ))}
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1
@@ -304,7 +299,7 @@ export default function PlanningPage() {
       {/* VUE SEMAINE */}
       {vue === 'semaine' && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200
-                        dark:border-gray-800 rounded-2xl overflow-hidden">
+                        dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 dark:bg-gray-800/50 border-b
@@ -394,7 +389,7 @@ export default function PlanningPage() {
       {/* VUE MOIS */}
       {vue === 'mois' && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200
-                        dark:border-gray-800 rounded-2xl overflow-hidden">
+                        dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full"
               style={{ minWidth: `${joursMois.length * 36 + 160}px` }}>

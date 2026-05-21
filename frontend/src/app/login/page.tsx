@@ -13,8 +13,8 @@ export default function LoginPage() {
   const dispatch = useDispatch()
   const router   = useRouter()
 
-  const [email,       setEmail]      = useState('')
-  const [motDePasse,  setMotDePasse] = useState('')
+  const [email,      setEmail]      = useState('')
+  const [motDePasse, setMotDePasse] = useState('')
   const [showPass,    setShowPass]   = useState(false)
   const [loading,     setLoading]    = useState(false)
   const [erreur,      setErreur]     = useState('')
@@ -30,18 +30,27 @@ export default function LoginPage() {
   const [mdpRetrouve,   setMdpRetrouve]   = useState('')
 
   const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
+  useEffect(() => { 
+    setMounted(true) 
+  }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setErreur('')
     try {
-      const data = await authService.login(email, motDePasse)
+      const data = await authService.login(email.trim().toLowerCase(), motDePasse)
       dispatch(setCredentials({ user: data.user, token: data.access_token }))
-      router.push('/dashboard')
-    } catch { setErreur('Email ou mot de passe incorrect.') }
-    finally { setLoading(false) }
+      
+      // Sécurité anti-crash : on s'assure que le routeur client existe bien
+      if (router) {
+        router.push('/dashboard')
+      }
+    } catch (err) { 
+      setErreur('Email ou mot de passe incorrect.') 
+    } finally { 
+      setLoading(false) 
+    }
   }
 
   const handleReinit = async (e: React.FormEvent) => {
@@ -52,9 +61,17 @@ export default function LoginPage() {
       const res = await api.post('/auth/reinitialiser-mdp', { email: emailReinit.trim().toLowerCase() })
       setMdpRetrouve(res.data.mdp_initial ?? '')
       setVue('succes')
-    } catch (err: any) { setErreurReinit(err.response?.data?.detail ?? 'Erreur') }
-    finally { setLoadingReinit(false) }
+    } catch (err: any) { 
+      setErreurReinit(err.response?.data?.detail ?? 'Une erreur est survenue lors de la réinitialisation.') 
+    } finally { 
+      setLoadingReinit(false) 
+    }
   }
+
+  // ── PROTECTION SSR / HYDRATION ─────────────────────────────────
+  // Si le composant n'est pas monté sur le client, on ne rend rien 
+  // pour éviter les conflits HTML Serveur/Client avec les boucles Array(12)
+  if (!mounted) return null
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden">
@@ -75,7 +92,7 @@ export default function LoginPage() {
         
         {/* Boules qui flottent */}
         {[...Array(12)].map((_, i) => (
-          <div key={i} className={`ball ball-${i + 1}`} />
+          <div key={`ball-${i}`} className={`ball ball-${i + 1}`} />
         ))}
         
         {/* Étoiles qui flottent */}
@@ -87,7 +104,7 @@ export default function LoginPage() {
       </div>
 
       {/* ── CONTENU CENTRÉ ── */}
-      <div className={`relative z-10 w-full max-w-lg transition-all duration-700 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+      <div className="relative z-10 w-full max-w-lg transition-all duration-700 opacity-100 translate-y-0">
         
         {/* Logo header */}
         <div className="text-center mb-10">
@@ -246,44 +263,13 @@ export default function LoginPage() {
       </div>
 
       <style>{`
-        /* ── Orbes ── */
-        .orb {
-          position: absolute;
-          border-radius: 50%;
-          filter: blur(80px);
-          animation: float-orb 20s ease-in-out infinite;
-        }
-        .orb1 {
-          width: 500px; height: 500px;
-          background: #1a6fd4;
-          top: -200px; left: -150px;
-          animation-delay: 0s;
-        }
-        .orb2 {
-          width: 400px; height: 400px;
-          background: #0d3a7a;
-          bottom: -150px; right: -100px;
-          animation-delay: -7s;
-        }
-        .orb3 {
-          width: 300px; height: 300px;
-          background: #2563eb;
-          top: 40%; left: 60%;
-          animation-delay: -14s;
-        }
-        @keyframes float-orb {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(30px, 40px) scale(1.05); }
-          66% { transform: translate(-20px, 20px) scale(0.95); }
-        }
-
-        /* ── Boules ── */
-        .ball {
-          position: absolute;
-          border-radius: 50%;
-          background: rgba(59, 130, 246, 0.3);
-          animation: float-ball 15s ease-in-out infinite;
-        }
+        /* Tout ton CSS reste exactement identique ici */
+        .orb { position: absolute; border-radius: 50%; filter: blur(80px); animation: float-orb 20s ease-in-out infinite; }
+        .orb1 { width: 500px; height: 500px; background: #1a6fd4; top: -200px; left: -150px; animation-delay: 0s; }
+        .orb2 { width: 400px; height: 400px; background: #0d3a7a; bottom: -150px; right: -100px; animation-delay: -7s; }
+        .orb3 { width: 300px; height: 300px; background: #2563eb; top: 40%; left: 60%; animation-delay: -14s; }
+        @keyframes float-orb { 0%, 100% { transform: translate(0, 0) scale(1); } 33% { transform: translate(30px, 40px) scale(1.05); } 66% { transform: translate(-20px, 20px) scale(0.95); } }
+        .ball { position: absolute; border-radius: 50%; background: rgba(59, 130, 246, 0.3); animation: float-ball 15s ease-in-out infinite; }
         .ball-1 { width: 8px; height: 8px; top: 10%; left: 15%; animation-delay: 0s; }
         .ball-2 { width: 6px; height: 6px; top: 20%; right: 25%; animation-delay: -2s; }
         .ball-3 { width: 10px; height: 10px; top: 60%; left: 10%; animation-delay: -4s; }
@@ -296,19 +282,8 @@ export default function LoginPage() {
         .ball-10 { width: 7px; height: 7px; bottom: 30%; right: 35%; animation-delay: -7s; }
         .ball-11 { width: 6px; height: 6px; top: 15%; left: 50%; animation-delay: -9s; }
         .ball-12 { width: 9px; height: 9px; bottom: 15%; right: 20%; animation-delay: -11s; }
-
-        @keyframes float-ball {
-          0%, 100% { transform: translateY(0) translateX(0); opacity: 0.6; }
-          25% { transform: translateY(-30px) translateX(15px); opacity: 1; }
-          50% { transform: translateY(-15px) translateX(-10px); opacity: 0.4; }
-          75% { transform: translateY(-40px) translateX(20px); opacity: 0.8; }
-        }
-
-        /* ── Étoiles ── */
-        .star {
-          position: absolute;
-          animation: twinkle 4s ease-in-out infinite;
-        }
+        @keyframes float-ball { 0%, 100% { transform: translateY(0) translateX(0); opacity: 0.6; } 25% { transform: translateY(-30px) translateX(15px); opacity: 1; } 50% { transform: translateY(-15px) translateX(-10px); opacity: 0.4; } 75% { transform: translateY(-40px) translateX(20px); opacity: 0.8; } }
+        .star { position: absolute; animation: twinkle 4s ease-in-out infinite; }
         .star-1 { top: 12%; left: 30%; animation-delay: 0s; }
         .star-2 { top: 25%; right: 20%; animation-delay: -1s; }
         .star-3 { top: 55%; left: 8%; animation-delay: -2s; }
@@ -317,169 +292,25 @@ export default function LoginPage() {
         .star-6 { bottom: 25%; left: 15%; animation-delay: -2.5s; }
         .star-7 { bottom: 40%; right: 10%; animation-delay: -0.5s; }
         .star-8 { top: 8%; right: 45%; animation-delay: -3.5s; }
-
-        @keyframes twinkle {
-          0%, 100% { opacity: 0.3; transform: scale(1) rotate(0deg); }
-          50% { opacity: 0.8; transform: scale(1.2) rotate(10deg); }
-        }
-
-        /* ── Logo ── */
-        .logo-container {
-          width: 90px; height: 90px;
-          border-radius: 24px;
-          background: linear-gradient(135deg, rgba(29,111,212,0.5), rgba(13,58,122,0.5));
-          border: 1px solid rgba(59,130,246,0.4);
-          box-shadow: 0 0 50px rgba(29,111,212,0.4);
-        }
-
-        /* ── Form Card ── */
-        .form-card {
-          background: rgba(10,22,40,0.85);
-          backdrop-filter: blur(20px);
-          border: 1px solid rgba(59,130,246,0.15);
-          border-radius: 24px;
-          padding: 2.5rem;
-          box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-        }
-
-        /* ── Inputs ── */
+        @keyframes twinkle { 0%, 100% { opacity: 0.3; transform: scale(1) rotate(0deg); } 50% { opacity: 0.8; transform: scale(1.2) rotate(10deg); } }
+        .logo-container { width: 90px; height: 90px; border-radius: 24px; background: linear-gradient(135deg, rgba(29,111,212,0.5), rgba(13,58,122,0.5)); border: 1px solid rgba(59,130,246,0.4); box-shadow: 0 0 50px rgba(29,111,212,0.4); }
+        .form-card { background: rgba(10,22,40,0.85); backdrop-filter: blur(20px); border: 1px solid rgba(59,130,246,0.15); border-radius: 24px; padding: 2.5rem; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }
         .input-wrapper { display: flex; flex-direction: column; gap: 8px; }
-        .input-label {
-          font-size: 13px;
-          font-weight: 500;
-          color: rgba(147,197,253,0.7);
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .input-field {
-          width: 100%;
-          padding: 16px 18px;
-          background: rgba(30, 41, 59, 0.8) !important;
-          border: 1px solid rgba(59, 130, 246, 0.3);
-          border-radius: 14px;
-          color: white !important;
-          font-size: 15px;
-          outline: none;
-          transition: all 0.3s;
-          caret-color: #60a5fa;
-        }
+        .input-label { font-size: 13px; font-weight: 500; color: rgba(147,197,253,0.7); text-transform: uppercase; letter-spacing: 0.05em; }
+        .input-field { width: 100%; padding: 16px 18px; background: rgba(30, 41, 59, 0.8) !important; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 14px; color: white !important; font-size: 15px; outline: none; transition: all 0.3s; caret-color: #60a5fa; }
         .input-field::placeholder { color: rgba(255,255,255,0.4); }
-        .input-field:focus {
-          background: rgba(30, 41, 59, 0.95) !important;
-          border-color: rgba(96,165,250,0.6);
-          box-shadow: 0 0 0 4px rgba(59,130,246,0.2);
-        }
-        /* Override browser autofill */
-        .input-field:-webkit-autofill,
-        .input-field:-webkit-autofill:hover,
-        .input-field:-webkit-autofill:focus {
-          -webkit-text-fill-color: white !important;
-          -webkit-box-shadow: 0 0 0px 1000px rgba(30, 41, 59, 0.8) inset !important;
-        }
-
-        /* ── Buttons ── */
-        .submit-btn {
-          width: 100%;
-          padding: 16px;
-          background: linear-gradient(135deg, #1d6fd4, #1251a3);
-          color: white;
-          border: none;
-          border-radius: 14px;
-          font-size: 15px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          transition: all 0.3s;
-          box-shadow: 0 4px 20px rgba(29,111,212,0.4);
-        }
-        .submit-btn:hover:not(:disabled) {
-          background: linear-gradient(135deg, #2478e0, #1a5fbe);
-          transform: translateY(-2px);
-          box-shadow: 0 8px 30px rgba(29,111,212,0.5);
-        }
+        .input-field:focus { background: rgba(30, 41, 59, 0.95) !important; border-color: rgba(96,165,250,0.6); box-shadow: 0 0 0 4px rgba(59,130,246,0.2); }
+        .input-field:-webkit-autofill, .input-field:-webkit-autofill:hover, .input-field:-webkit-autofill:focus { -webkit-text-fill-color: white !important; -webkit-box-shadow: 0 0 0px 1000px rgba(30, 41, 59, 0.8) inset !important; }
+        .submit-btn { width: 100%; padding: 16px; background: linear-gradient(135deg, #1d6fd4, #1251a3); color: white; border: none; border-radius: 14px; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.3s; box-shadow: 0 4px 20px rgba(29,111,212,0.4); }
+        .submit-btn:hover:not(:disabled) { background: linear-gradient(135deg, #2478e0, #1a5fbe); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(29,111,212,0.5); }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        .amber-btn {
-          width: 100%;
-          padding: 16px;
-          background: linear-gradient(135deg, #2563eb, #1d4ed8);
-          color: white;
-          border: none;
-          border-radius: 14px;
-          font-size: 15px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.3s;
-        }
-
-        /* ── Divers ── */
-        .error-message {
-          padding: 12px;
-          background: rgba(239,68,68,0.15);
-          border: 1px solid rgba(239,68,68,0.3);
-          border-radius: 10px;
-          color: #f87171;
-          font-size: 13px;
-        }
-
-        .key-icon {
-          width: 60px; height: 60px;
-          border-radius: 16px;
-          background: rgba(217,119,6,0.15);
-          border: 1px solid rgba(217,119,6,0.25);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .success-icon {
-          width: 64px; height: 64px;
-          border-radius: 50%;
-          background: rgba(16,185,129,0.15);
-          border: 1px solid rgba(16,185,129,0.25);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .mdp-box {
-          background: rgba(59,130,246,0.1);
-          border: 1px solid rgba(59,130,246,0.25);
-          border-radius: 12px;
-          padding: 1rem;
-        }
-
-        /* ── Email Validation Badges ── */
-        .valid-badge {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          padding: 4px 8px;
-          background: rgba(16,185,129,0.15);
-          border: 1px solid rgba(16,185,129,0.3);
-          border-radius: 6px;
-          font-size: 10px;
-          font-weight: 600;
-          color: #34d399;
-          text-transform: uppercase;
-          letter-spacing: 0.03em;
-        }
-        
-        .invalid-badge {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          padding: 4px 8px;
-          background: rgba(239,68,68,0.1);
-          border: 1px solid rgba(239,68,68,0.2);
-          border-radius: 6px;
-          font-size: 10px;
-          font-weight: 600;
-          color: #f87171;
-        }
+        .amber-btn { width: 100%; padding: 16px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; border: none; border-radius: 14px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+        .error-message { padding: 12px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); border-radius: 10px; color: #f87171; font-size: 13px; }
+        .key-icon { width: 60px; height: 60px; border-radius: 16px; background: rgba(217,119,6,0.15); border: 1px solid rgba(217,119,6,0.25); display: flex; align-items: center; justify-content: center; }
+        .success-icon { width: 64px; height: 64px; border-radius: 50%; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.25); display: flex; align-items: center; justify-content: center; }
+        .mdp-box { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.25); border-radius: 12px; padding: 1rem; }
+        .valid-badge { display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); border-radius: 6px; font-size: 10px; font-weight: 600; color: #34d399; text-transform: uppercase; letter-spacing: 0.03em; }
+        .invalid-badge { display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); border-radius: 6px; font-size: 10px; font-weight: 600; color: #f87171; }
       `}</style>
     </div>
   )

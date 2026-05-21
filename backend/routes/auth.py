@@ -67,6 +67,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
             "date_naissance" : str(user.date_naissance) if user.date_naissance else None,
             "telephone"      : user.telephone,
             "id_equipe"      : user.id_equipe,
+            "photo_url"      : user.photo_url,
         }
     }
 
@@ -101,6 +102,7 @@ def me(
         "date_naissance" : str(user.date_naissance) if user.date_naissance else None,
         "telephone"      : user.telephone,
         "id_equipe"      : user.id_equipe,
+        "photo_url"      : user.photo_url,
     }
 
 

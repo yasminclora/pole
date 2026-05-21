@@ -52,9 +52,6 @@ def run():
                 designation  = row["designation"],
                 quantite     = int(row.get("quantite")     or 0),
                 seuil_alerte = int(row.get("seuil_alerte") or 2),
-                unite        = row.get("unite")             or "pcs",
-                emplacement  = row.get("emplacement")       or None,
-                description  = row.get("description")       or None,
             )
             db.add(piece)
             inserted += 1

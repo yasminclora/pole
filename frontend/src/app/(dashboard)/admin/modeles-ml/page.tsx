@@ -15,9 +15,6 @@ import type { RootState } from '@/store/store'
 import { modelesMLService, type ModeleML, type UploadModeleParams } from '@/services/modelesMLService'
 import api from '@/services/axiosInstance'
 
-type Tab = 'modeles' | 'comparer' | 'export'
-
-// ── Data export types ─────────────────────────────────────────────────────────
 interface Apercu {
   nb_total: number
   nb_corr: number
@@ -30,67 +27,56 @@ interface ExportFile {
   created_at: string
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
 export default function ModelesMLPage() {
   const router = useRouter()
-  const user   = useSelector((s: RootState) => s.auth.user)
-
-  const [tab, setTab]             = useState<Tab>('modeles')
+  const user   = useSelector((s: RootState) => s.auth.user) // États globaux
   const [modeles, setModeles]     = useState<ModeleML[]>([])
   const [loading, setLoading]     = useState(true)
   const [showUpload, setShowUpload] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [error, setError]         = useState<string | null>(null)
 
-  // Comparaison
+  // États Comparaison
   const [compareData, setCompareData] = useState<any[]>([])
   const [loadingCompare, setLoadingCompare] = useState(false)
-
-  // Export données
   const [apercu, setApercu]         = useState<Apercu | null>(null)
   const [loadingApercu, setLoadingApercu] = useState(false)
   const [exporting, setExporting]   = useState(false)
   const [exportFiles, setExportFiles] = useState<ExportFile[]>([])
   const [loadingFiles, setLoadingFiles] = useState(false)
   const [exportMsg, setExportMsg]   = useState<string | null>(null)
-
+  
   useEffect(() => {
     if (user && user.role !== 'ADMIN') {
       router.replace('/dashboard')
       return
     }
-    void charger()
+    void chargerTout()
   }, [user])
 
-  useEffect(() => {
-    if (tab === 'comparer') void chargerCompare()
-    if (tab === 'export')   { void chargerApercu(); void chargerFichiers() }
-  }, [tab])
-
-  async function charger() {
-    setLoading(true); setError(null)
+  async function chargerTout() {
+    setLoading(true)
+    setError(null)
     try {
-      setModeles(await modelesMLService.lister())
+      const [modelesRes, compareRes, apercuRes, fichiersRes] = await Promise.all([
+        modelesMLService.lister(),
+        api.get('/modeles-ml/comparer').catch(() => ({ data: [] })),
+        api.get('/data-export/apercu').catch(() => ({ data: null })),
+        api.get('/data-export/historique').catch(() => ({ data: [] }))
+      ])
+
+      setModeles(modelesRes)
+      setCompareData(compareRes.data)
+      setApercu(apercuRes.data)
+      setExportFiles(fichiersRes.data)
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e.message ?? 'Erreur')
+      setError(e?.response?.data?.detail ?? e.message ?? 'Erreur lors du chargement des données')
     } finally {
       setLoading(false)
     }
   }
-
-  async function chargerCompare() {
-    setLoadingCompare(true)
-    try {
-      const res = await api.get('/modeles-ml/comparer')
-      setCompareData(res.data)
-    } catch {
-      setCompareData([])
-    } finally {
-      setLoadingCompare(false)
-    }
-  }
-
-  async function chargerApercu() {
+  
+  async function rafraichirApercu() {
     setLoadingApercu(true)
     try {
       const res = await api.get('/data-export/apercu')
@@ -98,7 +84,7 @@ export default function ModelesMLPage() {
     } catch { setApercu(null) } finally { setLoadingApercu(false) }
   }
 
-  async function chargerFichiers() {
+  async function rafraichirFichiers() {
     setLoadingFiles(true)
     try {
       const res = await api.get('/data-export/historique')
@@ -110,23 +96,33 @@ export default function ModelesMLPage() {
     setActionLoading(id)
     try {
       await modelesMLService.activer(id)
-      await charger()
+      const [mRes, cRes] = await Promise.all([
+        modelesMLService.lister(),
+        api.get('/modeles-ml/comparer').catch(() => ({ data: [] }))
+      ])
+      setModeles(mRes)
+      setCompareData(cRes.data)
     } catch (e: any) {
       alert(e?.response?.data?.detail ?? e.message ?? 'Erreur')
     } finally { setActionLoading(null) }
   }
-
+  
   async function handleSupprimer(id: number, version: string) {
     if (!confirm(`Supprimer définitivement le modèle ${version} ?`)) return
     setActionLoading(id)
     try {
       await modelesMLService.supprimer(id)
-      await charger()
+      const [mRes, cRes] = await Promise.all([
+        modelesMLService.lister(),
+        api.get('/modeles-ml/comparer').catch(() => ({ data: [] }))
+      ])
+      setModeles(mRes)
+      setCompareData(cRes.data)
     } catch (e: any) {
       alert(e?.response?.data?.detail ?? e.message ?? 'Erreur')
     } finally { setActionLoading(null) }
   }
-
+  
   async function handleExporter() {
     setExporting(true); setExportMsg(null)
     try {
@@ -134,13 +130,12 @@ export default function ModelesMLPage() {
       const blob   = new Blob([res.data], { type: 'text/csv;charset=utf-8;' })
       const url    = URL.createObjectURL(blob)
       const a      = document.createElement('a')
-      const fname  = res.headers['content-disposition']?.match(/filename="(.+?)"/)?.[1]
-                     ?? 'export.csv'
+      const fname  = res.headers['content-disposition']?.match(/filename="(.+?)"/)?.[1] ?? 'export.csv'
       a.href = url; a.download = fname; a.click()
       URL.revokeObjectURL(url)
       const nb = res.headers['x-nb-lignes']
       setExportMsg(`Export réussi — ${nb ?? '?'} lignes téléchargées.`)
-      await chargerApercu(); await chargerFichiers()
+      await rafraichirApercu(); await rafraichirFichiers()
     } catch (e: any) {
       const detail = e?.response?.data ? await e.response.data.text?.() : e.message
       alert(detail ?? 'Erreur lors de l\'export')
@@ -160,7 +155,6 @@ export default function ModelesMLPage() {
 
   if (user && user.role !== 'ADMIN') return null
 
-  // Données graphique comparaison
   const chartCompare = compareData.map(m => ({
     name    : m.version,
     'R²'    : m.metrics?.r2    != null ? +(m.metrics.r2    * 100).toFixed(1) : null,
@@ -170,361 +164,329 @@ export default function ModelesMLPage() {
     active  : m.is_active,
   }))
 
-  const TABS: { id: Tab; label: string; icon: typeof Brain }[] = [
-    { id: 'modeles',  label: 'Modèles',         icon: Brain },
-    { id: 'comparer', label: 'Comparaison',      icon: BarChart2 },
-    { id: 'export',   label: 'Export données',   icon: Database },
-  ]
-
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow">
-            <Brain className="w-6 h-6 text-white" />
+    <div className="w-full max-w-[1600px] mx-auto space-y-10 p-4">
+      
+      {/* ON GARDE TON BEAU BLEU ICI */}
+      <div className="relative overflow-hidden w-full bg-[#1e3a67] text-white rounded-2xl p-8 shadow-md border border-slate-800/20 bg-[radial-gradient(#ffffff10_1px,transparent_1px)] [background-size:16px_16px]">
+        <div className="flex items-center justify-between relative z-10 flex-wrap gap-4">
+          <div className="flex items-center gap-5">
+            <div className="w-14 h-14 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
+              <Brain size={28} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-4xl font-serif font-bold tracking-tight text-white">
+                Console Administration Machine Learning
+              </h1>
+              <p className="text-base text-slate-200 mt-1 font-sans flex items-center gap-2">
+                <span className="text-blue-200">Supervision globale des modèles LSTM/GRU, métriques de performance et exports</span>
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Administration ML</h1>
-            <p className="text-sm text-gray-500">Modèles LSTM/GRU, métriques et export de données</p>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => void chargerTout()}
+              className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold transition-all border border-white/10"
+              title="Tout actualiser"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setShowUpload(true)}
+              className="flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition-all text-sm border border-blue-500/20"
+            >
+              <Plus className="w-5 h-5" /> Uploader un modèle
+            </button>
           </div>
         </div>
-        {tab === 'modeles' && (
-          <button
-            onClick={() => setShowUpload(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow"
-          >
-            <Plus className="w-4 h-4" /> Uploader un modèle
-          </button>
-        )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-700">
-        {TABS.map(t => {
-          const Icon = t.icon
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === t.id
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-              }`}
-            >
-              <Icon className="w-4 h-4" /> {t.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* ── TAB : MODÈLES ──────────────────────────────────────────────── */}
-      {tab === 'modeles' && (
-        <>
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
-          )}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-            {loading ? (
-              <div className="p-12 flex items-center justify-center">
-                <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
-              </div>
-            ) : modeles.length === 0 ? (
-              <div className="p-12 text-center text-gray-500">Aucun modèle uploadé pour le moment.</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-700 text-left text-gray-600 dark:text-gray-300 uppercase text-xs">
-                  <tr>
-                    <th className="px-4 py-3">Version</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3">Nom</th>
-                    <th className="px-4 py-3">Description</th>
-                    <th className="px-4 py-3">Uploadé le</th>
-                    <th className="px-4 py-3">Statut</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {modeles.map(m => (
-                    <tr key={m.id_modele} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                      <td className="px-4 py-3 font-mono font-semibold">{m.version}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                          m.type_modele === 'LSTM' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
-                        }`}>{m.type_modele}</span>
-                      </td>
-                      <td className="px-4 py-3">{m.nom}</td>
-                      <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{m.description ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-500">{new Date(m.uploaded_at).toLocaleString('fr-FR')}</td>
-                      <td className="px-4 py-3">
-                        {m.is_active ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">
-                            <CheckCircle2 className="w-3 h-3" /> Actif
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">Inactif</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {!m.is_active && (
-                            <button
-                              onClick={() => handleActiver(m.id_modele)}
-                              disabled={actionLoading === m.id_modele}
-                              className="px-3 py-1 text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded disabled:opacity-50"
-                            >
-                              {actionLoading === m.id_modele ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Activer'}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleSupprimer(m.id_modele, m.version)}
-                            disabled={actionLoading === m.id_modele || m.is_active}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                            title={m.is_active ? 'Désactivez avant de supprimer' : 'Supprimer'}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </>
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-medium">{error}</div>
       )}
 
-      {/* ── TAB : COMPARAISON ──────────────────────────────────────────── */}
-      {tab === 'comparer' && (
-        <div className="space-y-6">
-          {loadingCompare ? (
-            <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-indigo-500" /></div>
-          ) : compareData.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">Aucun modèle à comparer.</div>
-          ) : (
-            <>
-              {/* Graphiques métriques */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* R² et Recall (%) */}
-                <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
-                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">R² et Recall (%)</p>
-                  <ResponsiveContainer width="100%" height={220}>
+      {loading ? (
+        <div className="p-24 flex flex-col items-center justify-center gap-4">
+          <Loader2 className="w-12 h-12 animate-spin text-blue-600" />
+          <p className="text-gray-500 font-medium">Chargement complet de la console ML...</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+      
+            {/* TABLEAU DES MODÈLES (Effet de flottaison discret et fond blanc/gris épuré) */}
+            <div className="xl:col-span-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                  <Database className="w-5 h-5 text-blue-600" /> Modèles déployés
+                </h2>
+              </div>
+              <div className="bg-slate-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
+                {modeles.length === 0 ? (
+                  <div className="p-16 text-center text-gray-500 text-base">Aucun modèle disponible.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-base">
+                      <thead className="bg-gray-100/80 dark:bg-gray-800/50 text-left text-gray-600 dark:text-gray-300 uppercase text-xs font-bold tracking-wider">
+                        <tr>
+                          <th className="px-6 py-4">Version</th>
+                          <th className="px-6 py-4">Type</th>
+                          <th className="px-6 py-4">Statut</th>
+                          <th className="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200/60 dark:divide-gray-800">
+                        {modeles.map(m => (
+                          <tr key={m.id_modele} className="hover:bg-white/80 dark:hover:bg-gray-800/50 transition-colors">
+                            <td className="px-6 py-5 font-mono font-bold text-lg text-gray-900 dark:text-white">{m.version}</td>
+                            <td className="px-6 py-5">
+                              <span className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-wide ${
+                                m.type_modele === 'LSTM' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400'
+                              }`}>{m.type_modele}</span>
+                            </td>
+                          
+                            <td className="px-6 py-5">
+                              {m.is_active ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded-md text-xs font-bold">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Actif
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 bg-gray-200/60 dark:bg-gray-800 text-gray-500 rounded-md text-xs font-medium">Inactif</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-5 text-right">
+                              <div className="flex items-center justify-end gap-3">
+                                {!m.is_active && (
+                                  <button
+                                    onClick={() => handleActiver(m.id_modele)}
+                                    disabled={actionLoading === m.id_modele}
+                                    className="px-3.5 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 rounded-lg disabled:opacity-50 font-bold transition-all"
+                                  >
+                                    {actionLoading === m.id_modele ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : 'Activer'}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleSupprimer(m.id_modele, m.version)}
+                                  disabled={actionLoading === m.id_modele || m.is_active}
+                                  className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                  title={m.is_active ? 'Désactivez avant de supprimer' : 'Supprimer'}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* PIPELINE DE NOUVELLES DONNÉES (Fond gris/blanc moderne avec flottaison) */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                  <Database className="w-5 h-5 text-orange-600" /> Nouvelles Données (Pipeline)
+                </h2>
+                <button onClick={rafraichirApercu} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg">
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="bg-slate-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm space-y-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
+                {apercu ? (
+                  <>
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-200/60 dark:border-gray-700 shadow-sm">
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{apercu.nb_total}</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mt-0.5">Total</p>
+                      </div>
+                      {/* Passé du rouge/vert d'origine à un gris/bleu sobre façon maquette */}
+                      <div className="bg-gray-100 dark:bg-gray-850 rounded-xl p-3 border border-gray-200/60">
+                        <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{apercu.nb_corr}</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mt-0.5">Corr.</p>
+                      </div>
+                      <div className="bg-blue-50/60 dark:bg-blue-950/20 rounded-xl p-3 border border-blue-100/30">
+                        <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{apercu.nb_prev}</p>
+                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wide mt-0.5">Prév.</p>
+                      </div>
+                    </div>
+
+                    {exportMsg && (
+                      <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4" /> {exportMsg}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleExporter}
+                      disabled={exporting || apercu.nb_total === 0}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm transition-all text-sm disabled:opacity-50"
+                    >
+                      {exporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+                      {exporting ? 'Exportation...' : `Exporter ${apercu.nb_total} lignes`}
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400">Données d'aperçu indisponibles.</p>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* ANALYSE COMPARATIVE (Fonds gris épurés + Flottaison) */}
+          <div className="space-y-4 pt-4">
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+              <BarChart2 className="w-5 h-5 text-indigo-600" /> Analyse comparative des précisions
+            </h2>
+            
+            {compareData.length === 0 ? (
+              <div className="text-center py-12 bg-slate-50 border border-gray-200 rounded-2xl text-gray-400">Aucun modèle à analyser graphiquement.</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-slate-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
+                  <p className="text-base font-bold text-gray-800 dark:text-gray-200 mb-6">Fidélité Générale : R² et Recall (%)</p>
+                  <ResponsiveContainer width="100%" height={380}>
                     <BarChart data={chartCompare} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                      <YAxis unit="%" tick={{ fontSize: 11 }} domain={[0, 100]} />
+                      <XAxis dataKey="name" tick={{ fontSize: 12, fontWeight: 'bold' }} />
+                      <YAxis unit="%" tick={{ fontSize: 12 }} domain={[0, 100]} />
                       <Tooltip formatter={(v: any) => `${v}%`} />
                       <Legend />
-                      <Bar dataKey="R²"     fill="#6366f1" radius={[3,3,0,0]} />
-                      <Bar dataKey="Recall" fill="#10b981" radius={[3,3,0,0]} />
+                      <Bar dataKey="R²"     fill="#2563eb" radius={[4,4,0,0]} barSize={28} />
+                      <Bar dataKey="Recall" fill="#10b981" radius={[4,4,0,0]} barSize={28} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-
-                {/* MAE */}
-                <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
-                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">MAE (jours) — plus bas = meilleur</p>
-                  <ResponsiveContainer width="100%" height={220}>
+                <div className="bg-slate-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
+                  <p className="text-base font-bold text-gray-800 dark:text-gray-200 mb-6">Marge d'erreur : MAE (Jours) — Le plus bas est le meilleur</p>
+                  <ResponsiveContainer width="100%" height={380}>
                     <BarChart data={chartCompare} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                      <YAxis unit=" j" tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v: any) => `${v} j`} />
+                      <XAxis dataKey="name" tick={{ fontSize: 12, fontWeight: 'bold' }} />
+                      <YAxis unit=" j" tick={{ fontSize: 12 }} />
+                      <Tooltip formatter={(v: any) => `${v} jours`} />
                       <Legend />
-                      <Bar dataKey="MAE" fill="#f97316" radius={[3,3,0,0]} />
+                      <Bar dataKey="MAE" fill="#f97316" radius={[4,4,0,0]} barSize={36} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
+            )}
+          </div>
 
-              {/* Tableau résumé */}
-              <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-gray-800 text-xs uppercase text-gray-500 dark:text-gray-400">
+          {/* MATRICE DÉTAILLÉE */}
+          <div className="space-y-4 pt-4">
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+              <BarChart2 className="w-5 h-5 text-emerald-600" /> Matrice détaillée des hyperparamètres et scores
+            </h2>
+            <div className="bg-slate-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
+              <div className="overflow-x-auto">
+                <table className="w-full text-base text-left">
+                  <thead className="bg-gray-100 dark:bg-gray-800 text-xs uppercase font-bold text-gray-500 tracking-wider">
                     <tr>
-                      <th className="px-4 py-3 text-left">Version</th>
-                      <th className="px-4 py-3 text-left">Type</th>
-                      <th className="px-4 py-3 text-center">R²</th>
-                      <th className="px-4 py-3 text-center">MAE</th>
-                      <th className="px-4 py-3 text-center">Recall</th>
-                      <th className="px-4 py-3 text-center">F1</th>
-                      <th className="px-4 py-3 text-center">Composants</th>
-                      <th className="px-4 py-3 text-center">Statut</th>
+                      <th className="px-6 py-4">Version</th>
+                      <th className="px-6 py-4">Architecture</th>
+                      <th className="px-6 py-4 text-center">R² Score</th>
+                      <th className="px-6 py-4 text-center">MAE (Erreur)</th>
+                      <th className="px-6 py-4 text-center">Recall</th>
+                      <th className="px-6 py-4 text-center">Score F1</th>
+                      <th className="px-6 py-4 text-center">Composants</th>
+                      <th className="px-6 py-4 text-center">Statut Production</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  <tbody className="divide-y divide-gray-200/60 dark:divide-gray-800 font-medium">
                     {compareData.map(m => (
-                      <tr key={m.id_modele} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${m.is_active ? 'bg-indigo-50/50 dark:bg-indigo-950/20' : ''}`}>
-                        <td className="px-4 py-3 font-mono font-semibold">{m.version}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${m.type_modele === 'LSTM' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                      <tr key={m.id_modele} className={`hover:bg-white/80 dark:hover:bg-gray-800/50 transition-colors ${m.is_active ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}`}>
+                        <td className="px-6 py-5 font-mono font-bold text-lg text-gray-900 dark:text-white">{m.version}</td>
+                        <td className="px-6 py-5">
+                          <span className={`px-2.5 py-1 rounded text-xs font-bold ${m.type_modele === 'LSTM' ? 'bg-blue-100 text-blue-700' : 'bg-cyan-100 text-cyan-700'}`}>
                             {m.type_modele}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-center font-semibold">
-                          {m.metrics?.r2 != null ? m.metrics.r2.toFixed(2) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {m.metrics?.mae != null ? `${m.metrics.mae.toFixed(2)} j` : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {m.metrics?.recall != null ? `${(m.metrics.recall * 100).toFixed(0)}%` : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {m.metrics?.f1 != null ? `${(m.metrics.f1 * 100).toFixed(0)}%` : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-center">{m.num_composants}</td>
-                        <td className="px-4 py-3 text-center">
+                        <td className="px-6 py-5 text-center font-bold text-gray-800 dark:text-gray-200">{m.metrics?.r2 != null ? m.metrics.r2.toFixed(3) : '—'}</td>
+                        <td className="px-6 py-5 text-center text-gray-700 dark:text-gray-300">{m.metrics?.mae != null ? `${m.metrics.mae.toFixed(2)} j` : '—'}</td>
+                        <td className="px-6 py-5 text-center text-gray-700 dark:text-gray-300">{m.metrics?.recall != null ? `${(m.metrics.recall * 100).toFixed(1)}%` : '—'}</td>
+                        <td className="px-6 py-5 text-center text-gray-700 dark:text-gray-300">{m.metrics?.f1 != null ? `${(m.metrics.f1 * 100).toFixed(1)}%` : '—'}</td>
+                        <td className="px-6 py-5 text-center font-mono text-gray-600">{m.num_composants}</td>
+                        <td className="px-6 py-5 text-center">
                           {m.is_active ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                              <CheckCircle2 className="w-3 h-3" /> Actif
+                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                              Actif
                             </span>
-                          ) : <span className="text-gray-400 text-xs">Inactif</span>}
+                          ) : <span className="text-gray-400 text-sm">Disponibles</span>}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </>
-          )}
-        </div>
-      )}
+            </div>
+          </div>
 
-      {/* ── TAB : EXPORT DONNÉES ──────────────────────────────────────── */}
-      {tab === 'export' && (
-        <div className="space-y-6">
-          {/* Aperçu */}
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-semibold text-gray-800 dark:text-white">Nouvelles données disponibles</h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  Interventions ajoutées depuis le dernier export — utilisées pour réentraîner le modèle
-                </p>
-              </div>
-              <button
-                onClick={() => { void chargerApercu() }}
-                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-              >
+          {/* HISTORIQUE ET ARCHIVES (Fonds gris épurés + Flottaison) */}
+          <div className="space-y-4 pt-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                Archives & Historique des téléchargements CSV
+              </h2>
+              <button onClick={rafraichirFichiers} className="p-1.5 text-gray-400 hover:text-gray-600">
                 <RefreshCw className="w-4 h-4" />
               </button>
             </div>
-
-            {loadingApercu ? (
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-            ) : apercu ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-4">
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-5 py-3 text-center min-w-[100px]">
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{apercu.nb_total}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Total</p>
-                  </div>
-                  <div className="bg-red-50 dark:bg-red-950/20 rounded-lg px-5 py-3 text-center min-w-[100px]">
-                    <p className="text-2xl font-bold text-red-700 dark:text-red-400">{apercu.nb_corr}</p>
-                    <p className="text-xs text-red-500 mt-0.5">Correctives</p>
-                  </div>
-                  <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg px-5 py-3 text-center min-w-[100px]">
-                    <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{apercu.nb_prev}</p>
-                    <p className="text-xs text-blue-500 mt-0.5">Préventives</p>
-                  </div>
+            <div className="bg-slate-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
+              {exportFiles.length === 0 ? (
+                <div className="p-10 text-center text-gray-400">Aucun fichier archivé.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-gray-100 dark:bg-gray-800 text-xs font-bold text-gray-500 uppercase">
+                      <tr>
+                        <th className="px-6 py-3">Nom de l'archive</th>
+                        <th className="px-6 py-3 text-center">Taille</th>
+                        <th className="px-6 py-3 text-center">Généré le</th>
+                        <th className="px-6 py-3"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200/60 dark:divide-gray-800">
+                      {exportFiles.map(f => (
+                        <tr key={f.filename} className="hover:bg-white/80 dark:hover:bg-gray-800/50">
+                          <td className="px-6 py-3.5 font-mono text-gray-600 dark:text-gray-400">{f.filename}</td>
+                          <td className="px-6 py-3.5 text-center text-gray-500">{f.size_kb} Ko</td>
+                          <td className="px-6 py-3.5 text-center text-gray-500">{new Date(f.created_at).toLocaleString('fr-FR')}</td>
+                          <td className="px-6 py-3.5 text-right">
+                            <button
+                              onClick={() => handleTelecharger(f.filename)}
+                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-bold transition-all text-sm"
+                            >
+                              <Download className="w-3.5 h-3.5" /> Récupérer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-
-                {apercu.last_export_at && (
-                  <p className="text-xs text-gray-500">
-                    Dernier export : {new Date(apercu.last_export_at).toLocaleString('fr-FR')}
-                  </p>
-                )}
-
-                {exportMsg && (
-                  <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" /> {exportMsg}
-                  </div>
-                )}
-
-                <button
-                  onClick={handleExporter}
-                  disabled={exporting || apercu.nb_total === 0}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-semibold shadow disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {exporting
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Export en cours…</>
-                    : <><Download className="w-4 h-4" /> Exporter {apercu.nb_total} ligne(s) en CSV</>
-                  }
-                </button>
-                {apercu.nb_total === 0 && (
-                  <p className="text-sm text-gray-400">Aucune nouvelle donnée à exporter.</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">Impossible de charger l'aperçu.</p>
-            )}
-          </div>
-
-          {/* Historique exports */}
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Exports précédents</p>
-              <button
-                onClick={() => void chargerFichiers()}
-                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
+              )}
             </div>
-            {loadingFiles ? (
-              <div className="p-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-indigo-500" /></div>
-            ) : exportFiles.length === 0 ? (
-              <div className="p-8 text-center text-sm text-gray-400">Aucun export effectué pour le moment.</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-800 text-xs uppercase text-gray-500 dark:text-gray-400">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Fichier</th>
-                    <th className="px-4 py-3 text-center">Taille</th>
-                    <th className="px-4 py-3 text-center">Date</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {exportFiles.map(f => (
-                    <tr key={f.filename} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">{f.filename}</td>
-                      <td className="px-4 py-3 text-center text-gray-500 text-xs">{f.size_kb} Ko</td>
-                      <td className="px-4 py-3 text-center text-gray-500 text-xs">
-                        {new Date(f.created_at).toLocaleString('fr-FR')}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleTelecharger(f.filename)}
-                          className="flex items-center gap-1 ml-auto text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400"
-                        >
-                          <Download className="w-3.5 h-3.5" /> Télécharger
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
           </div>
-        </div>
+        </>
       )}
 
-      {/* ── MODAL UPLOAD ───────────────────────────────────────────────── */}
       {showUpload && (
         <UploadModal
           onClose={() => setShowUpload(false)}
-          onSuccess={() => { setShowUpload(false); void charger() }}
+          onSuccess={() => { setShowUpload(false); void chargerTout() }}
         />
       )}
     </div>
   )
 }
 
-// ── Upload Modal ──────────────────────────────────────────────────────────────
 function UploadModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const [version,     setVersion]  = useState('')
   const [typeModele,  setType]     = useState<'LSTM' | 'GRU'>('GRU')
@@ -558,37 +520,33 @@ function UploadModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
       setSubmitting(false)
     }
   }
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Upload className="w-5 h-5" /> Uploader un nouveau modèle
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-800">
+          <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+            <Upload className="w-6 h-6 text-blue-500" /> Uploader un nouveau modèle
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-all">
             <X className="w-5 h-5" />
           </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {err && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{err}</div>}
-
-          <div className="grid grid-cols-2 gap-3">
+        </div> 
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {err && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-semibold">{err}</div>} 
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Version *</label>
+              <label className="block text-sm font-bold mb-1.5 text-gray-700 dark:text-gray-300">Version *</label>
               <input
                 type="text" required value={version} onChange={e => setVersion(e.target.value)}
                 placeholder="v3-GRU"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700"
-              />
-            </div>
+                className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+              />  
+            </div> 
             <div>
-              <label className="block text-sm font-medium mb-1">Type *</label>
+              <label className="block text-sm font-bold mb-1.5 text-gray-700 dark:text-gray-300">Type *</label>
               <select
                 value={typeModele} onChange={e => setType(e.target.value as 'LSTM' | 'GRU')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700"
-              >
+                className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium" >
                 <option value="GRU">GRU</option>
                 <option value="LSTM">LSTM</option>
               </select>
@@ -596,33 +554,35 @@ function UploadModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Nom *</label>
+            <label className="block text-sm font-bold mb-1.5 text-gray-700 dark:text-gray-300">Nom *</label>
             <input
               type="text" required value={nom} onChange={e => setNom(e.target.value)}
               placeholder="Ex: GRU Champion v3 — R²=0.76"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700"
+              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium mb-1">Description</label>
+            <label className="block text-sm font-bold mb-1.5 text-gray-700 dark:text-gray-300">Description</label>
             <textarea
               value={description} onChange={e => setDesc(e.target.value)} rows={2}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700"
+              placeholder="Détails du modèle, hyperparamètres..."
+              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
             />
           </div>
 
-          <FileInput label="Modèle (.keras)" accept=".keras" file={modelKeras} onChange={setKeras} />
-          <FileInput label="Scaler X (.pkl)" accept=".pkl"   file={scalerX}    onChange={setScalerX} />
-          <FileInput label="Scaler Y (.pkl)" accept=".pkl"   file={scalerY}    onChange={setScalerY} />
+          <div className="space-y-4 pt-2">
+            <FileInput label="Modèle (.keras)" accept=".keras" file={modelKeras} onChange={setKeras} />
+            <FileInput label="Scaler X (.pkl)" accept=".pkl"   file={scalerX}    onChange={setScalerX} />
+            <FileInput label="Scaler Y (.pkl)" accept=".pkl"   file={scalerY}    onChange={setScalerY} />
+          </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2">
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
             <button type="button" onClick={onClose}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all text-sm font-bold">
               Annuler
             </button>
             <button type="submit" disabled={submitting}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50">
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all shadow-sm disabled:opacity-50">
               {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
               {submitting ? 'Envoi…' : 'Envoyer'}
             </button>
@@ -638,13 +598,12 @@ function FileInput({ label, accept, file, onChange }: {
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium mb-1">{label} *</label>
-      <input
-        type="file" accept={accept} required
+      <label className="block text-sm font-bold mb-1.5 text-gray-700 dark:text-gray-300">{label} *</label>
+      <input  type="file" accept={accept} required
         onChange={e => onChange(e.target.files?.[0] ?? null)}
-        className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+        className="w-full text-sm text-gray-500 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-950/40 dark:file:text-blue-400 transition-all cursor-pointer"
       />
-      {file && <p className="text-xs text-gray-500 mt-1">{file.name} — {(file.size / (1024 * 1024)).toFixed(2)} Mo</p>}
+      {file && <p className="text-xs text-gray-400 mt-1 font-mono">✓ {file.name} — {(file.size / (1024 * 1024)).toFixed(2)} Mo</p>}
     </div>
   )
 }

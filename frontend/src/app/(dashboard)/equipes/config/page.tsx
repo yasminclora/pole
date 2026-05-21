@@ -5,24 +5,12 @@ import { RootState } from '@/store/store'
 import { planningService } from '@/services/planningService'
 import { equipesService  } from '@/services/equipesService'
 import { useWebSocket    } from '@/hooks/useWebSocket'
-import { QUART_MAP, JOURS_COURTS, getQuartInfo } from '@/utils/planning'
-import { Settings, Check, Loader2, AlertTriangle, ArrowLeftRight, X } from 'lucide-react'
+import { JOURS_COURTS } from '@/utils/planning'
+import { Settings, Check, Loader2, Calendar, RefreshCw, Layers, Users } from 'lucide-react'
 
 interface Config {
   date_debut     : string
   position_alpha : number
-}
-
-interface Demande {
-  id                   : number
-  id_equipe_demandeur  : number
-  nom_equipe_demandeur : string
-  date_echange         : string
-  quart_souhaite       : string
-  motif                : string | null
-  statut               : string
-  motif_refus          : string | null
-  nom_equipe_cible     : string | null
 }
 
 interface Equipe {
@@ -33,18 +21,21 @@ interface Equipe {
   position_initiale_cycle : number
 }
 
-const POSITIONS = [
-  { value: 0, label: '☀ Matin'       },
-  { value: 2, label: '🌅 Après-midi' },
-  { value: 4, label: '🌙 Nuit'       },
-  { value: 6, label: '— Repos'       },
+// Les 4 configurations blocs possibles pour l'usine sur un cycle de 8 jours (2 jours par bloc)
+const BLOCS_ROTATION = [
+  { value: 0, label: 'Bloc 1: Alpha(M) • Bravo(A) • Charlie(N) • Delta(R)' },
+  { value: 2, label: 'Bloc 2: Alpha(A) • Bravo(N) • Charlie(R) • Delta(M)' },
+  { value: 4, label: 'Bloc 3: Alpha(N) • Bravo(R) • Charlie(M) • Delta(A)' },
+  { value: 6, label: 'Bloc 4: Alpha(R) • Bravo(M) • Charlie(A) • Delta(N)' },
 ]
 
-const inputClass = `w-full px-3 py-2.5 rounded-xl border
-  border-gray-200 dark:border-gray-700
-  bg-gray-50 dark:bg-gray-800
-  text-gray-900 dark:text-white text-sm
-  focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`
+// Style des badges selon le quart
+const QUART_STYLES: Record<string, { bg: string, border: string, text: string, label: string, lettre: string }> = {
+  'M': { bg: 'bg-emerald-50 dark:bg-emerald-950/30', border: 'border-emerald-200 dark:border-emerald-800', text: 'text-emerald-700 dark:text-emerald-400', label: 'Matin', lettre: 'M' },
+  'A': { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-400', label: 'Après-midi', lettre: 'A' },
+  'N': { bg: 'bg-blue-50 dark:bg-blue-950/30', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-400', label: 'Nuit', lettre: 'N' },
+  'R': { bg: 'bg-slate-50 dark:bg-slate-800/50', border: 'border-slate-200 dark:border-slate-700', text: 'text-slate-500 dark:text-slate-400', label: 'Repos', lettre: 'R' }
+}
 
 export default function ConfigPage() {
   const authUser = useSelector((s: RootState) => s.auth.user)
@@ -53,29 +44,22 @@ export default function ConfigPage() {
 
   const [config,        setConfig]        = useState<Config | null>(null)
   const [equipes,       setEquipes]       = useState<Equipe[]>([])
-  const [demandes,      setDemandes]      = useState<Demande[]>([])
   const [loading,       setLoading]       = useState(true)
   const [dateDebut,     setDateDebut]     = useState('')
   const [positionAlpha, setPositionAlpha] = useState(0)
   const [savingConfig,  setSavingConfig]  = useState(false)
   const [succesConfig,  setSuccesConfig]  = useState(false)
   const [errConfig,     setErrConfig]     = useState('')
-  const [demandeRefus,  setDemandeRefus]  = useState<Demande | null>(null)
-  const [motifRefus,    setMotifRefus]    = useState('')
-  const [savingRefus,   setSavingRefus]   = useState(false)
-  const [savingAccept,  setSavingAccept]  = useState<number | null>(null)
 
   const charger = async () => {
     setLoading(true)
     try {
-      const [cfg, eqs, dems] = await Promise.all([
+      const [cfg, eqs] = await Promise.all([
         planningService.getConfig(idPole),
         equipesService.parPole(idPole),
-        planningService.demandesPole(idPole),
       ])
       setConfig(cfg)
       setEquipes(eqs)
-      setDemandes(dems)
       if (cfg) {
         setDateDebut(cfg.date_debut)
         setPositionAlpha(cfg.position_alpha)
@@ -88,26 +72,8 @@ export default function ConfigPage() {
   useEffect(() => { if (idPole) charger() }, [idPole])
 
   useWebSocket((msg) => {
-    if (msg.type === 'DEMANDE_ECHANGE_CREEE' && msg.payload.id_pole === idPole) {
-      charger()
-    }
     if (msg.type === 'CONFIG_PLANNING_MISE_A_JOUR' && msg.payload.id_pole === idPole) {
       setConfig({ date_debut: msg.payload.date_debut, position_alpha: msg.payload.position_alpha })
-      if (msg.payload?.equipes) {
-        setEquipes(prev => prev.map(eq => {
-          const updated = msg.payload.equipes.find((e: any) => e.id_equipe === eq.id_equipe)
-          return updated ? {
-            ...eq,
-            date_reference_cycle    : updated.date_reference_cycle,
-            position_initiale_cycle : updated.position_initiale_cycle,
-          } : eq
-        }))
-      }
-    }
-    if (
-      msg.type === 'DEMANDE_ECHANGE_ACCEPTEE' ||
-      msg.type === 'DEMANDE_ECHANGE_REFUSEE'
-    ) {
       charger()
     }
   })
@@ -122,18 +88,9 @@ export default function ConfigPage() {
         cree_par       : idUser,
       })
       setConfig(res.config)
-      if (res.equipes) {
-        setEquipes(prev => prev.map(eq => {
-          const updated = res.equipes.find((e: any) => e.id_equipe === eq.id_equipe)
-          return updated ? {
-            ...eq,
-            date_reference_cycle    : updated.date_reference_cycle,
-            position_initiale_cycle : updated.position_initiale_cycle,
-          } : eq
-        }))
-      }
       setSuccesConfig(true)
-      setTimeout(() => setSuccesConfig(false), 2000)
+      setTimeout(() => setSuccesConfig(false), 3000)
+      charger()
     } catch (err: any) {
       setErrConfig(err.response?.data?.detail ?? 'Erreur')
     } finally {
@@ -141,435 +98,204 @@ export default function ConfigPage() {
     }
   }
 
-  const handleAccepter = async (demande: Demande) => {
-    setSavingAccept(demande.id)
-    try {
-      await planningService.accepterDemande(demande.id, {
-        traite_par       : idUser,
-        pour_chef_equipe : demande.id_equipe_demandeur,
-      })
-      await charger()
-    } catch (err: any) {
-      alert(err.response?.data?.detail ?? 'Erreur')
-    } finally {
-      setSavingAccept(null)
+  // Fonction pour calculer la distribution des quarts d'une journée donnée (Séquence collective 2-2-2-2)
+  const getQuartsPourDate = (cibleDate: Date) => {
+    if (!dateDebut) return {}
+    const t1 = Date.UTC(cibleDate.getFullYear(), cibleDate.getMonth(), cibleDate.getDate())
+    const d = new Date(dateDebut)
+    const t0 = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+    
+    const millisecondesParJour = 24 * 60 * 60 * 1000
+    let deltaJours = Math.floor((t1 - t0) / millisecondesParJour)
+    
+    // Calcul de l'index dans le cycle global de 8 jours
+    let indexCycle = (positionAlpha + deltaJours) % 8
+    if (indexCycle < 0) indexCycle += 8
+
+    // Attribution collective basée sur l'avancement du bloc de 2 jours
+    if (indexCycle === 0 || indexCycle === 1) {
+      return { Alpha: 'M', Bravo: 'A', Charlie: 'N', Delta: 'R' }
+    } else if (indexCycle === 2 || indexCycle === 3) {
+      return { Alpha: 'A', Bravo: 'N', Charlie: 'R', Delta: 'M' }
+    } else if (indexCycle === 4 || indexCycle === 5) {
+      return { Alpha: 'N', Bravo: 'R', Charlie: 'M', Delta: 'A' }
+    } else {
+      return { Alpha: 'R', Bravo: 'M', Charlie: 'A', Delta: 'N' }
     }
   }
 
-  const handleRefuser = async () => {
-    if (!demandeRefus) return
-    setSavingRefus(true)
-    try {
-      await planningService.refuserDemande(demandeRefus.id, {
-        traite_par  : idUser,
-        motif_refus : motifRefus,
-      })
-      setDemandeRefus(null); setMotifRefus('')
-      await charger()
-    } catch (err: any) {
-      alert(err.response?.data?.detail ?? 'Erreur')
-    } finally {
-      setSavingRefus(false)
-    }
-  }
-
-  // Aperçu 8 jours
+  // Génération de l'aperçu complet de 8 jours consécutifs
   const apercu = dateDebut ? Array.from({ length: 8 }, (_, i) => {
     const d = new Date(dateDebut)
     d.setDate(d.getDate() + i)
     return {
-      date   : d,
-      equipes: equipes.map(eq => ({
-        equipe: eq,
-        info  : getQuartInfo(
-          { date_debut: dateDebut, position_alpha: positionAlpha },
-          eq, d, [], equipes
-        )
-      }))
+      date: d,
+      quarts: getQuartsPourDate(d)
     }
   }) : []
 
-  const demandesEnAttente = demandes.filter(d => d.statut === 'EN_ATTENTE')
-  const historiqueTraite  = demandes.filter(d => d.statut !== 'EN_ATTENTE')
-
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 size={32} className="text-blue-500 animate-spin"/>
+    <div className="py-24 flex flex-col items-center justify-center gap-3 bg-slate-50 dark:bg-gray-950 min-h-screen">
+      <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      <p className="text-sm text-gray-500 font-medium">Initialisation des roulements Cevital...</p>
     </div>
   )
 
-  return (
-    <div className="space-y-6">
+  const quartsActuels = dateDebut ? getQuartsPourDate(new Date(dateDebut)) : {}
 
-      {/* Modal refus */}
-      {demandeRefus && (
-        <div className="fixed inset-0 bg-black/50 flex items-center
-                        justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6
-                          max-w-md w-full border border-gray-200
-                          dark:border-gray-700 shadow-2xl">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
-              Refuser la demande
-            </h3>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
-              {demandeRefus.nom_equipe_demandeur} —{' '}
-              {new Date(demandeRefus.date_echange).toLocaleDateString('fr-FR')}
-            </p>
-            <textarea value={motifRefus}
-              onChange={e => setMotifRefus(e.target.value)}
-              placeholder="Motif du refus (optionnel)..."
-              rows={3}
-              className={inputClass}/>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => { setDemandeRefus(null); setMotifRefus('') }}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200
-                           dark:border-gray-700 text-gray-600 dark:text-gray-400
-                           text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
-                Annuler
-              </button>
-              <button onClick={handleRefuser} disabled={savingRefus}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600
-                           text-white text-sm font-medium disabled:opacity-40">
-                {savingRefus
-                  ? <Loader2 size={14} className="animate-spin mx-auto"/>
-                  : 'Refuser'
-                }
-              </button>
+  return (
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-gray-950 p-6 space-y-6">
+
+      {/* BANDEAU HISTORIQUE / TITRE — STYLE EXACT CEVITAL OPTIMA */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0f2547] to-[#1a3a66] shadow-lg border border-[#1e3e6b]">
+        <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '20px 20px' }} />
+        <div className="relative px-8 py-7 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center shadow-inner">
+              <Settings className="w-6 h-6 text-white" />
+            </div>
+            <div>
+           
+              <h1 className="text-2xl font-serif font-bold text-white tracking-wide">
+                Gestion des Plannings
+              </h1>
+              
             </div>
           </div>
-        </div>
-      )}
-
-      {/* En-tête */}
-      <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-blue-600
-                        flex items-center justify-center">
-          <Settings size={22} className="text-white"/>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Configuration du planning
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
-            Gérez le planning et les demandes d'échange
-          </p>
+          <button onClick={charger} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all">
+            <RefreshCw className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {/* Badge demandes en attente */}
-      {demandesEnAttente.length > 0 && (
-        <div className="flex items-center gap-3 p-4 rounded-2xl
-                        bg-amber-50 dark:bg-amber-900/20
-                        border border-amber-200 dark:border-amber-800">
-          <AlertTriangle size={20} className="text-amber-500 flex-shrink-0"/>
-          <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-            {demandesEnAttente.length} demande{demandesEnAttente.length > 1 ? 's' : ''} d'échange en attente
-          </p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-        {/* ── Config de base ── */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200
-                        dark:border-gray-800 rounded-2xl p-6 space-y-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              Planning de base
-            </h2>
-            {config && (
-              <span className="flex items-center gap-1.5 text-xs
-                               bg-green-50 dark:bg-green-900/20
-                               text-green-700 dark:text-green-300
-                               px-2.5 py-1 rounded-lg border
-                               border-green-200 dark:border-green-800">
-                <Check size={12}/> Configuré
-              </span>
-            )}
+      {/* KPI BLOCS - STATISTIQUES USINE */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-slate-200 dark:border-gray-800 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Date Pivot Sélectionnée</p>
+            <p className="text-base font-bold text-slate-800 dark:text-white mt-0.5">{config ? new Date(config.date_debut).toLocaleDateString('fr-FR') : 'Non configurée'}</p>
           </div>
+          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-blue-600 dark:text-blue-400"><Calendar size={18}/></div>
+        </div>
+        <div className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-slate-200 dark:border-gray-800 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Structure Rotation</p>
+            <p className="text-base font-bold text-slate-800 dark:text-white mt-0.5">2J M • 2J A • 2J N • 2J R</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400"><Layers size={18}/></div>
+        </div>
+        <div className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-slate-200 dark:border-gray-800 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Nombre Équipes</p>
+            <p className="text-base font-bold text-slate-800 dark:text-white mt-0.5">{equipes.length} Équipes Actives</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400"><Users size={18}/></div>
+        </div>
+        <div className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-slate-200 dark:border-gray-800 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 dark:text-gray-500 uppercase tracking-wider">Statut Général</p>
+            <p className="text-base font-bold text-slate-800 dark:text-white mt-0.5">{config ? 'Synchro OK' : 'En attente'}</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-gray-400">{config ? <Check size={18}/> : '—'}</div>
+        </div>
+      </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        
+        {/* CONFIGURATION FORMULAIRE */}
+        <div className="bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-800 rounded-2xl p-5 shadow-sm space-y-4 h-fit">
+          <h2 className="text-xs font-bold text-slate-400 dark:text-gray-400 uppercase tracking-widest border-b border-slate-100 dark:border-gray-800 pb-2.5">Paramètres du Pivot</h2>
+          
+          <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700
-                                dark:text-gray-300 mb-1.5">
-                Date de référence
-              </label>
-              <input type="date" value={dateDebut}
-                onChange={e => setDateDebut(e.target.value)}
-                className={inputClass}/>
+              <label className="block text-[11px] font-bold text-slate-500 dark:text-gray-400 uppercase mb-1">Date de départ usine</label>
+              <input type="date" value={dateDebut} onChange={e => setDateDebut(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white transition-all"/>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700
-                                dark:text-gray-300 mb-1.5">
-                Équipe Alpha commence en
-              </label>
-              <select value={positionAlpha}
-                onChange={e => setPositionAlpha(Number(e.target.value))}
-                className={inputClass}>
-                {POSITIONS.map(p => (
+              <label className="block text-[11px] font-bold text-slate-500 dark:text-gray-400 uppercase mb-1">Alignement initial de la journée</label>
+              <select value={positionAlpha} onChange={e => setPositionAlpha(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white transition-all cursor-pointer">
+                {BLOCS_ROTATION.map(p => (
                   <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Résultat du jour */}
-          {dateDebut && equipes.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-gray-500
-                            dark:text-gray-400 mb-2">
-                Quarts ce jour-là :
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {equipes
-                  .slice()
-                  .sort((a, b) => {
-                    const ordre = ["Alpha","Bravo","Charlie","Delta"]
-                    const na = a.nom_equipe.split(' ').pop() ?? ''
-                    const nb = b.nom_equipe.split(' ').pop() ?? ''
-                    return ordre.indexOf(na) - ordre.indexOf(nb)
-                  })
-                  .map(eq => {
-                    const d    = new Date(dateDebut)
-                    const info = getQuartInfo(
-                      { date_debut: dateDebut, position_alpha: positionAlpha },
-                      eq, d, [], equipes
-                    )
-                    return (
-                      <div key={eq.id_equipe}
-                        className={`flex flex-col items-center p-3 rounded-xl
-                                   border ${info.bg} ${info.border}`}>
-                        <span className={`text-xs font-medium mb-1 ${info.couleur}`}>
-                          {eq.nom_equipe.split(' ').pop()}
-                        </span>
-                        <span className={`text-xl ${info.couleur}`}>
-                          {info.icone}
-                        </span>
-                        <span className={`text-xs font-bold mt-0.5 ${info.couleur}`}>
-                          {info.lettre}
-                        </span>
-                      </div>
-                    )
-                  })
-                }
-              </div>
-            </div>
-          )}
+          {errConfig && <p className="text-red-500 text-xs font-bold">⚠ {errConfig}</p>}
+          {succesConfig && <p className="text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1"><Check size={14}/> Cycle configuré avec succès !</p>}
 
-          {/* Aperçu 8 jours */}
-          {apercu.length > 0 && equipes.length > 0 && (
+          <button onClick={handleSaveConfig} disabled={savingConfig || !dateDebut}
+            className="w-full py-2.5 rounded-xl bg-[#0f2547] hover:bg-[#15325c] text-white text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-40">
+            {savingConfig ? <Loader2 size={14} className="animate-spin mx-auto"/> : 'Enregistrer la configuration'}
+          </button>
+        </div>
+
+        {/* CONTENU DU PLANNING APERÇU */}
+        <div className="xl:col-span-2 bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-800 rounded-2xl p-5 shadow-sm space-y-6">
+          <div>
+            <h2 className="text-xs font-bold text-slate-400 dark:text-gray-400 uppercase tracking-widest border-b border-slate-100 dark:border-gray-800 pb-2.5 mb-4">Distribution au jour J</h2>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {['Alpha', 'Bravo', 'Charlie', 'Delta'].map(nom => {
+                const quart = (quartsActuels as any)[nom] || 'R'
+                const style = QUART_STYLES[quart]
+                return (
+                  <div key={nom} className={`p-3.5 rounded-xl border ${style.bg} ${style.border} flex flex-col items-center justify-center text-center`}>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Équipe</span>
+                    <span className={`text-base font-serif font-black ${style.text}`}>{nom}</span>
+                    <span className={`mt-1.5 px-2.5 py-0.5 rounded text-[10px] font-black border uppercase bg-white dark:bg-gray-900 shadow-xs ${style.text} ${style.border}`}>
+                      {style.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* TABLEAU DE ROTATION SUR 8 JOURS CONTINUS */}
+          {apercu.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-gray-500
-                            dark:text-gray-400 mb-2">
-                Aperçu cycle (8 jours) :
-              </p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
+              <h2 className="text-xs font-bold text-slate-400 dark:text-gray-400 uppercase tracking-widest border-b border-slate-100 dark:border-gray-800 pb-2.5 mb-4">Vue d'ensemble de la rotation (8 Jours)</h2>
+              <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-gray-800">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 dark:bg-gray-800/50 border-b border-slate-100 dark:border-gray-800">
                     <tr>
-                      <th className="text-left text-gray-500 pb-1 pr-3 font-medium">
-                        Équipe
-                      </th>
+                      <th className="p-3 font-bold text-slate-400 dark:text-gray-500 uppercase text-[10px]">Équipe</th>
                       {apercu.map(({ date }, i) => (
-                        <th key={i} className="text-center text-gray-500 pb-1 px-1 font-medium">
-                          <div>
-                            {JOURS_COURTS[date.getDay() === 0 ? 6 : date.getDay() - 1]}
-                          </div>
-                          <div className="text-gray-700 dark:text-gray-300 font-bold">
-                            {date.getDate()}
-                          </div>
+                        <th key={i} className="p-2 text-center min-w-[50px]">
+                          <div className="text-[9px] font-bold text-slate-400 dark:text-gray-500 uppercase">{JOURS_COURTS[date.getDay() === 0 ? 6 : date.getDay() - 1]}</div>
+                          <div className="text-xs font-black text-slate-700 dark:text-gray-300">{date.getDate()}</div>
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody>
-                    {equipes
-                      .slice()
-                      .sort((a, b) => {
-                        const ordre = ["Alpha","Bravo","Charlie","Delta"]
-                        const na = a.nom_equipe.split(' ').pop() ?? ''
-                        const nb = b.nom_equipe.split(' ').pop() ?? ''
-                        return ordre.indexOf(na) - ordre.indexOf(nb)
-                      })
-                      .map(eq => (
-                        <tr key={eq.id_equipe}>
-                          <td className="pr-3 py-1 text-gray-600 dark:text-gray-400
-                                         font-medium whitespace-nowrap">
-                            {eq.nom_equipe.split(' ').pop()}
-                          </td>
-                          {apercu.map(({ date }, i) => {
-                            const info = getQuartInfo(
-                              { date_debut: dateDebut, position_alpha: positionAlpha },
-                              eq, date, [], equipes
-                            )
-                            return (
-                              <td key={i} className="px-0.5 py-1">
-                                <div className={`w-8 h-8 rounded-lg flex items-center
-                                               justify-center font-bold text-sm
-                                               border ${info.bg} ${info.couleur}
-                                               ${info.border}`}>
-                                  {info.lettre}
-                                </div>
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))
-                    }
+                  <tbody className="divide-y divide-slate-100 dark:divide-gray-800">
+                    {['Alpha', 'Bravo', 'Charlie', 'Delta'].map(nom => (
+                      <tr key={nom} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                        <td className="p-3 font-serif font-bold text-slate-800 dark:text-gray-200 border-r border-slate-100 dark:border-gray-800 bg-white dark:bg-gray-900 sticky left-0 z-10">
+                          {nom}
+                        </td>
+                        {apercu.map(({ quarts }, idx) => {
+                          const q = (quarts as any)[nom] || 'R'
+                          const style = QUART_STYLES[q]
+                          return (
+                            <td key={idx} className="p-1 text-center">
+                              <div className={`w-9 h-9 mx-auto rounded-lg flex items-center justify-center text-xs font-black border shadow-xs ${style.bg} ${style.text} ${style.border}`}>
+                                {style.lettre}
+                              </div>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {errConfig && (
-            <p className="text-red-500 text-xs">⚠ {errConfig}</p>
-          )}
-          {succesConfig && (
-            <div className="flex items-center gap-2 p-3 rounded-lg
-                            bg-green-50 dark:bg-green-900/20
-                            border border-green-200 dark:border-green-800
-                            text-green-600 dark:text-green-400 text-sm">
-              <Check size={14}/> Planning enregistré avec succès !
-            </div>
-          )}
-
-          <button onClick={handleSaveConfig}
-            disabled={savingConfig || !dateDebut}
-            className="w-full flex items-center justify-center gap-2
-                       py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700
-                       text-white text-sm font-medium
-                       disabled:opacity-40 transition-all">
-            {savingConfig
-              ? <><Loader2 size={14} className="animate-spin"/> Enregistrement...</>
-              : <><Check size={14}/> Enregistrer le planning</>
-            }
-          </button>
-        </div>
-
-        {/* ── Demandes d'échange ── */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200
-                        dark:border-gray-800 rounded-2xl p-6 space-y-4">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-            Demandes d'échange
-            {demandesEnAttente.length > 0 && (
-              <span className="ml-2 px-2 py-0.5 rounded-full text-xs
-                               bg-amber-100 dark:bg-amber-900/30
-                               text-amber-700 dark:text-amber-300">
-                {demandesEnAttente.length}
-              </span>
-            )}
-          </h2>
-
-          {/* En attente */}
-          {demandesEnAttente.length === 0 ? (
-            <div className="text-center py-8">
-              <ArrowLeftRight size={32}
-                className="text-gray-300 dark:text-gray-600 mx-auto mb-2"/>
-              <p className="text-gray-400 text-sm">Aucune demande en attente</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {demandesEnAttente.map(d => {
-                const quartInfo = QUART_MAP[d.quart_souhaite]
-                return (
-                  <div key={d.id}
-                    className="border border-gray-200 dark:border-gray-700
-                               rounded-xl p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                          {d.nom_equipe_demandeur}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Le {new Date(d.date_echange).toLocaleDateString('fr-FR')}
-                        </p>
-                      </div>
-                      {quartInfo && (
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1
-                                         rounded-lg text-xs font-medium border
-                                         ${quartInfo.bg} ${quartInfo.couleur}
-                                         ${quartInfo.border}`}>
-                          {quartInfo.icone} {d.quart_souhaite}
-                        </span>
-                      )}
-                    </div>
-                    {d.motif && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400
-                                   bg-gray-50 dark:bg-gray-800 p-2 rounded-lg italic">
-                        "{d.motif}"
-                      </p>
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={() => handleAccepter(d)}
-                        disabled={savingAccept === d.id}
-                        className="flex-1 flex items-center justify-center gap-1.5
-                                   py-2 rounded-xl bg-green-500 hover:bg-green-600
-                                   text-white text-xs font-medium
-                                   disabled:opacity-40 transition-all">
-                        {savingAccept === d.id
-                          ? <Loader2 size={12} className="animate-spin"/>
-                          : <><Check size={12}/> Accepter</>
-                        }
-                      </button>
-                      <button onClick={() => setDemandeRefus(d)}
-                        className="flex-1 flex items-center justify-center gap-1.5
-                                   py-2 rounded-xl border border-red-200
-                                   dark:border-red-800
-                                   bg-red-50 dark:bg-red-900/20
-                                   hover:bg-red-100 dark:hover:bg-red-900/30
-                                   text-red-600 dark:text-red-400
-                                   text-xs font-medium transition-all">
-                        <X size={12}/> Refuser
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Historique */}
-          {historiqueTraite.length > 0 && (
-            <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
-              <p className="text-xs font-medium text-gray-500
-                            dark:text-gray-400 uppercase tracking-wider mb-3">
-                Historique
-              </p>
-              <div className="space-y-2 max-h-52 overflow-y-auto">
-                {historiqueTraite.map(d => (
-                  <div key={d.id}
-                    className="flex items-center justify-between text-xs
-                               p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 gap-2">
-                    <div className="min-w-0">
-                      <span className="font-medium text-gray-900 dark:text-white">
-                        {d.nom_equipe_demandeur}
-                      </span>
-                      <span className="text-gray-400 mx-1">→</span>
-                      <span className="text-gray-600 dark:text-gray-300">
-                        {d.quart_souhaite}
-                      </span>
-                      <span className="text-gray-400 ml-1">
-                        ({new Date(d.date_echange).toLocaleDateString('fr-FR')})
-                      </span>
-                      {d.statut === 'ACCEPTE' && d.nom_equipe_cible && (
-                        <span className="text-green-600 dark:text-green-400 ml-1">
-                          ⇄ {d.nom_equipe_cible}
-                        </span>
-                      )}
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
-                      d.statut === 'ACCEPTE'
-                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                    }`}>
-                      {d.statut === 'ACCEPTE' ? '✓ Accepté' : '✗ Refusé'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

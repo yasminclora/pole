@@ -21,10 +21,12 @@ export interface NavSection {
   icon        : any
   allowedRoles: Role[]
   items       : NavSubItem[]
+  group      ?: string   // libellé du groupe (premier item du groupe seulement)
 }
 
 export const NAV_SECTIONS: NavSection[] = [
   {
+    group       : 'Aperçu',
     title       : 'Tableau de bord',
     icon        : LayoutDashboard,
     allowedRoles: ['ADMIN','METHODISTE','CHEF_EQUIPE',
@@ -33,6 +35,14 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 
   {
+    title       : 'Dashboard',
+    icon        : LayoutDashboard,
+    allowedRoles: ['ADMIN', 'METHODISTE'],
+    items: [],
+  },
+
+  {
+    group       : 'Intelligence',
     title       : 'Prédictions',
     icon        : TrendingUp,
     allowedRoles: ['METHODISTE'],
@@ -40,8 +50,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Lancer prédiction', href: '/predictions',
         allowedRoles: ['METHODISTE'] },
       { label: 'Historique', href: '/predictions/historique',
-        allowedRoles: ['METHODISTE'] },
-      { label: 'Dashboard prédictif', href: '/predictions/dashboard',
         allowedRoles: ['METHODISTE'] },
     ],
   },
@@ -57,6 +65,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 
   {
+    group       : 'Gestion',
     title       : 'Gestion personnel',
     icon        : Users,
     allowedRoles: ['ADMIN', 'METHODISTE'],
@@ -89,6 +98,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 
 {
+  group       : 'Maintenance',
   title       : 'Demandes d\'intervention',
   icon        : AlertTriangle,
   allowedRoles: ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE', 'METHODISTE', 'HSE'],
@@ -148,6 +158,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
 
   {
+    group       : 'Configuration',
     title       : 'Pôles',
     icon        : Building2,
     allowedRoles: ['ADMIN'],
@@ -177,6 +188,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
 
 {
+    group       : 'Logistique',
     title       : 'Stock',
     icon        : Package,
     allowedRoles: ['ADMIN','GESTIONNAIRE_STOCK','MECANICIEN','TECHNICIEN','CHEF_EQUIPE'],
@@ -196,4 +208,5 @@ export const NAV_SECTIONS: NavSection[] = [
 
 export const DIRECT_LINKS: Record<string, string> = {
   'Tableau de bord': '/dashboard',
+  'Dashboard'      : '/predictions/dashboard',
 }

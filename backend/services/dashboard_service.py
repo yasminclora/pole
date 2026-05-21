@@ -27,6 +27,7 @@ from models.zone import Zone
 # ══════════════════════════════════════════════════════════════════════
 
 def get_live_kpi(db: Session, id_pole: Optional[int] = None):
+    from models.ot import TypeOT
     q_ot = db.query(OrdreTravail)
     q_di = db.query(DemandeIntervention)
     if id_pole:
@@ -40,11 +41,17 @@ def get_live_kpi(db: Session, id_pole: Optional[int] = None):
     di_verifie     = q_di.filter(DemandeIntervention.statut == StatutDI.VERIFIE).count()
     non_archives   = q_ot.filter(OrdreTravail.statut != StatutOT.ARCHIVE).count()
 
+    # Repartition par type d'OT (correctif vs predictif)
+    ot_correctif = q_ot.filter(OrdreTravail.type_ot == TypeOT.CORRECTIF).count()
+    ot_predictif = q_ot.filter(OrdreTravail.type_ot == TypeOT.PREDICTIF).count()
+
     return {
         "total_ot": total_ot,
         "ot_non_archives": non_archives,
         "ot_en_cours": en_cours,
         "ot_termine": termine,
+        "ot_correctif": ot_correctif,
+        "ot_predictif": ot_predictif,
         "taux_completion": round(termine / total_ot * 100, 1) if total_ot else 0,
         "di_en_attente": di_en_attente,
         "di_verifie": di_verifie,
@@ -125,7 +132,9 @@ def get_intervention_by_status(db: Session, id_pole: Optional[int] = None):
 
 
 def get_recent_activity(db: Session, id_pole: Optional[int] = None, limit: int = 10):
-    """Dernières activités (OT + DI) triées par created_at — sans union SQL (plus simple et robuste)."""
+    """Dernières activités (OT + DI) triées par created_at — enrichi avec code machine."""
+    from models.equipement import Equipement
+
     q_ot = db.query(OrdreTravail).order_by(OrdreTravail.created_at.desc())
     q_di = db.query(DemandeIntervention).order_by(DemandeIntervention.created_at.desc())
 
@@ -136,8 +145,17 @@ def get_recent_activity(db: Session, id_pole: Optional[int] = None, limit: int =
     ots = q_ot.limit(limit).all()
     dis = q_di.limit(limit).all()
 
+    def equip_info(id_equip: Optional[int]):
+        if not id_equip:
+            return (None, None)
+        e = db.get(Equipement, id_equip)
+        if not e:
+            return (None, None)
+        return (e.equipment_code, e.description)
+
     rows: list[dict] = []
     for o in ots:
+        eq_code, eq_desc = equip_info(o.id_equipement)
         rows.append({
             "ref":       o.numero_ot,
             "type":      "OT",
@@ -145,8 +163,11 @@ def get_recent_activity(db: Session, id_pole: Optional[int] = None, limit: int =
             "statut":    (o.statut.value  if hasattr(o.statut,  "value") else str(o.statut))  if o.statut  else None,
             "date":      str(o.created_at) if o.created_at else None,
             "id":        o.id_ot,
+            "equipement_code": eq_code,
+            "equipement_desc": eq_desc,
         })
     for d in dis:
+        eq_code, eq_desc = equip_info(d.id_equipement)
         rows.append({
             "ref":       d.numero_di,
             "type":      "DI",
@@ -154,6 +175,8 @@ def get_recent_activity(db: Session, id_pole: Optional[int] = None, limit: int =
             "statut":    (d.statut.value  if hasattr(d.statut,  "value") else str(d.statut))  if d.statut  else None,
             "date":      str(d.created_at) if d.created_at else None,
             "id":        d.id_di,
+            "equipement_code": eq_code,
+            "equipement_desc": eq_desc,
         })
 
     # Tri global par date desc + limit

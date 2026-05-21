@@ -92,7 +92,7 @@ export default function HistoriquePredictionsPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Historique des prédictions</h1>
               <p className="text-blue-200 text-sm mt-1">
-                {runs.length} run{runs.length > 1 ? 's' : ''} · cliquez sur un run pour voir le détail
+                {runs.length} run{runs.length > 1 ? 's' : ''} 
               </p>
             </div>
           </div>

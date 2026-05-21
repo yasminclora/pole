@@ -177,12 +177,7 @@ export default function PredictionsPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Prédiction ML — Maintenance prédictive</h1>
-              <p className="text-blue-200 text-sm mt-1">
-                Sélectionnez un modèle puis lancez la prédiction sur les composants test de votre pôle
-                {authUser?.nom_pole && (
-                  <> · <span className="font-semibold text-white">{authUser.nom_pole}</span></>
-                )}
-              </p>
+          
             </div>
           </div>
           <button

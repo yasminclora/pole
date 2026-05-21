@@ -115,8 +115,6 @@ def piece_to_dict(p: PieceStock, db: Session) -> dict:
         "designation" : p.designation,
         "quantite"    : p.quantite,
         "seuil_alerte": p.seuil_alerte,
-        "emplacement" : p.emplacement,
-        "unite"       : p.unite,
         "alerte"      : alerte,
     }
 

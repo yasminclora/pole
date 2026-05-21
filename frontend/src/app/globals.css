@@ -129,6 +129,83 @@
   }
 }
 
+/* ── Dashboard animations ─ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Lévitation douce — utilisé sur les icônes des KPIs */
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-4px); }
+}
+
+/* Pulse subtil — utilisé sur les badges live et les éléments décoratifs */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.08); }
+}
+
+/* Dérive lente des blobs dans le hero */
+@keyframes drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(30px, -20px) scale(1.1); }
+  66%      { transform: translate(-25px, 25px) scale(0.95); }
+}
+@keyframes drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-30px, 20px) scale(1.15); }
+}
+
+/* Lueur pulsante */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(0, 59, 122, 0.15); }
+  50%      { box-shadow: 0 0 35px rgba(0, 59, 122, 0.35); }
+}
+
+/* Wobble doux au hover */
+@keyframes wobble-tiny {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-2deg); }
+  75%      { transform: rotate(2deg); }
+}
+
+/* Shimmer pour le titre */
+@keyframes shimmer-bg {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Bar grow — pour les histogrammes */
+@keyframes bar-grow {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+
+/* Bar grow horizontal — pour les barres de progression */
+@keyframes bar-grow-x {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Line reveal — pour les courbes SVG */
+@keyframes line-reveal {
+  from { stroke-dashoffset: 1500; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Slide in left → right pour les items de feed */
+@keyframes slide-in-feed {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Donut reveal — pour le donut chart */
+@keyframes donut-reveal {
+  from { stroke-dasharray: 0 1000; }
+}
+
 /* ── Scrollbar custom (amélioration discrète, applicable à tout l'app) ─ */
 ::-webkit-scrollbar           { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track     { background: transparent; }

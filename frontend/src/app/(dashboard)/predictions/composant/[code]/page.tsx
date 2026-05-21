@@ -149,7 +149,7 @@ export default function ComposantDetailPage() {
         <button onClick={handleRetour}
           className="flex items-center gap-2 text-sm text-gray-600 hover:text-[#003B7A] transition-colors">
           <ArrowLeft className="w-4 h-4"/>
-          {fromRun ? `Retour au run #${fromRun}` :
+          {fromRun ? `Retour ` :
            fromHistorique ? 'Retour à l\'historique' :
                             'Retour aux prédictions'}
         </button>

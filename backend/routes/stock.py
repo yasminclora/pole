@@ -70,16 +70,15 @@ def get_piece_by_composante(equipment_code: str, db: Session = Depends(get_db)):
 
 
 # ─────────────────────────────────────────────────────────────────────
-# GET /stock/liste?page=1&limit=20&search=&emplacement=
+# GET /stock/liste?page=1&limit=20&search=
 # Liste paginee de toutes les pieces en stock
-# Recherche par code_stock, designation OU code equipement (composante)
+# Recherche par code_stock, designation
 # ─────────────────────────────────────────────────────────────────────
 @router.get("/liste")
 def list_pieces(
     page: int = 1,
     limit: int = 20,
     search: str = "",
-    emplacement: str = "",
     db: Session = Depends(get_db)
 ):
     """
@@ -94,11 +93,6 @@ def list_pieces(
                 func.upper(PieceStock.code_stock).contains(search_clean),
                 func.upper(PieceStock.designation).contains(search_clean),
             )
-        )
-
-    if emplacement:
-        query = query.filter(
-            func.upper(PieceStock.emplacement) == emplacement.strip().upper()
         )
 
     total = query.count()
@@ -409,9 +403,7 @@ def _serialize_reservation(res: ReservationPiece, db: Session = None) -> dict:
         "id_piece"              : res.id_piece,
         "code_stock"            : res.piece.code_stock if res.piece else None,
         "designation"           : res.piece.designation if res.piece else None,
-        "description"           : res.piece.description if res.piece else None,
         "quantite_stock"        : res.piece.quantite if res.piece else None,
-        "emplacement"           : res.piece.emplacement if res.piece else None,
         "id_ot"                 : res.id_ot,
         "numero_ot"             : numero_ot,
         "ot_statut"             : ot_statut,
@@ -459,11 +451,8 @@ def _serialize_piece(piece: PieceStock) -> dict:
         "id_piece":         piece.id_piece,
         "code_stock":       piece.code_stock,
         "designation":      piece.designation,
-        "description":      piece.description,
         "quantite":         piece.quantite,
         "seuil_alerte":     piece.seuil_alerte,
-        "emplacement":      piece.emplacement,
-        "unite":            piece.unite,
         "nb_composantes":   len(composantes),
         "composantes_liees": composantes,
     }
@@ -481,22 +470,16 @@ from core.dependencies import require_roles
 class PieceCreate(BaseModel):
     code_stock:       Optional[str] = None   # auto-généré si vide
     designation:      str           = Field(..., min_length=2, max_length=300)
-    description:      Optional[str] = None
     quantite:         int           = Field(default=0, ge=0)
     seuil_alerte:     int           = Field(default=2, ge=0)
-    emplacement:      Optional[str] = None
-    unite:            str           = "pcs"
     equipment_codes:  List[str]     = []      # équipements à lier
     quantite_type:    int           = 1       # qté nécessaire / remplacement
 
 
 class PieceUpdate(BaseModel):
     designation:  Optional[str] = None
-    description:  Optional[str] = None
     quantite:     Optional[int] = None
     seuil_alerte: Optional[int] = None
-    emplacement:  Optional[str] = None
-    unite:        Optional[str] = None
 
 
 def _generate_code_stock(db: Session) -> str:
@@ -524,11 +507,8 @@ def creer_piece(
     piece = PieceStock(
         code_stock   = code,
         designation  = data.designation.strip().upper(),
-        description  = data.description,
         quantite     = data.quantite,
         seuil_alerte = data.seuil_alerte,
-        emplacement  = data.emplacement,
-        unite        = data.unite or "pcs",
     )
     db.add(piece)
     db.flush()   # pour récupérer id_piece
@@ -586,11 +566,8 @@ def modifier_piece(
         raise HTTPException(404, detail="Pièce introuvable")
 
     if data.designation  is not None: piece.designation  = data.designation.strip().upper()
-    if data.description  is not None: piece.description  = data.description
     if data.quantite     is not None: piece.quantite     = max(0, data.quantite)
     if data.seuil_alerte is not None: piece.seuil_alerte = max(0, data.seuil_alerte)
-    if data.emplacement  is not None: piece.emplacement  = data.emplacement
-    if data.unite        is not None: piece.unite        = data.unite
 
     db.commit()
     db.refresh(piece)

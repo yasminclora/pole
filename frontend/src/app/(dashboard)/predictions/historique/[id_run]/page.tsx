@@ -163,7 +163,6 @@ export default function DetailRunPage() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="font-mono text-sm font-bold">Run #{run.id_run}</span>
                 {modele && (
                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                     modele.type_modele === 'GRU' ? 'bg-indigo-500/30 text-white' : 'bg-violet-500/30 text-white'
@@ -175,8 +174,7 @@ export default function DetailRunPage() {
               <h1 className="text-2xl font-bold tracking-tight">Résultats du run</h1>
               <p className="text-blue-200 text-sm mt-1">
                 Lancé le {fmtDateTime(run.launched_at)}
-                {run.duree_ms != null && ` · Durée ${(run.duree_ms / 1000).toFixed(1)}s`}
-                {run.pole && ` · Pôle ${run.pole}`}
+                {run.duree_ms != null }
               </p>
             </div>
           </div>

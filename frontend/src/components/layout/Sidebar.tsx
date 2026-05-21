@@ -1,5 +1,5 @@
 ﻿'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useSelector, useDispatch } from 'react-redux'
@@ -13,34 +13,40 @@ import { otService } from '@/services/otService'
 import {
   ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp,
-  Zap, LogOut, Menu, X
+  Zap, LogOut, Menu, X, Circle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+const fontStyle = { fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' }
 
 export default function Sidebar() {
   const pathname  = usePathname()
   const router    = useRouter()
   const dispatch  = useDispatch()
-  const user      = useSelector((s: RootState) => s.auth.user)
   const role      = useSelector((s: RootState) => s.auth.user?.role) as Role | undefined
   const idPole    = useSelector((s: RootState) => s.auth.user?.id_pole)
   const idUser    = useSelector((s: RootState) => s.auth.user?.id_user)
 
   const [collapsed,    setCollapsed]  = useState(false)
   const [mobileOpen,  setMobileOpen] = useState(false)
-  const [openSections, setOpen]       = useState<string[]>(['Ordres de travail', "Demandes d'intervention", 'Equipements', 'Equipes', 'Stock'])
+  // On initialise uniquement avec les sections principales que l'on veut ouvertes par défaut
+  const [openSections, setOpen]       = useState<string[]>(['Ordres de travail', "Demandes d'intervention"])
   const [nbDINotifs,   setNbDINotifs]   = useState(0)
   const [nbOTAssignes, setNbOTAssignes] = useState(0)
 
   const { notifications } = useGlobalNotifications()
 
-  // Auto-ouvrir la section active au chargement
+  // CORRECTION BUG : Gestion propre de l'auto-ouverture au chargement initial
   useEffect(() => {
     const activeSection = visibleSections.find(section => 
-      section.items.some(item => pathname.startsWith(item.href))
+      section.items.some(item => {
+        // Si c'est la racine, on compare strictement pour éviter que "/" match avec tout
+        if (item.href === '/') return pathname === '/'
+        return pathname.startsWith(item.href)
+      })
     )
-    if (activeSection) {
-      setOpen([activeSection.title])
+    if (activeSection && !openSections.includes(activeSection.title)) {
+      setOpen([activeSection.title]) // N'ouvre que celle-ci et ferme les autres
     }
   }, [pathname])
 
@@ -74,16 +80,7 @@ export default function Sidebar() {
 
   useEventListener('di_count_refresh', refreshDINotifs)
 
-  useEffect(() => {
-    NAV_SECTIONS.forEach(section => {
-      const hasActive = section.items.some(i => pathname.startsWith(i.href))
-      if (hasActive && !openSections.includes(section.title)) {
-        setOpen(prev => [...prev, section.title])
-      }
-    })
-  }, [pathname])
-
-  if (!role) return <div className="p-4 text-red-500">Pas de role defini</div>
+  if (!role) return <div className="p-4 text-red-500 font-bold" style={fontStyle}>Pas de role defini</div>
 
   const visibleSections = NAV_SECTIONS
   .filter(section => section.allowedRoles.includes(role as Role))
@@ -95,12 +92,9 @@ export default function Sidebar() {
   }))
   .filter(section => section.items.length > 0 || DIRECT_LINKS[section.title])
 
+  // ACTION DE CLIC : Force la fermeture des autres dossiers (accordéon strict)
   const toggleSection = (title: string) => {
-    setOpen(prev =>
-      prev.includes(title) 
-        ? prev.filter(t => t !== title) 
-        : [title] // Only one section open at a time
-    )
+    setOpen(prev => prev.includes(title) ? [] : [title])
   }
 
   const handleLogout = () => {
@@ -108,159 +102,194 @@ export default function Sidebar() {
     router.push('/login')
   }
 
-  const SidebarContent = () => (
-    <>
-      <div className={cn(
-        'flex items-center gap-3 px-5 py-5 border-b border-blue-900/30 flex-shrink-0',
-        collapsed && 'justify-center px-0'
-      )}>
-        <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center shadow-lg">
-          <Zap size={20} className="text-white"/>
-        </div>
-        {!collapsed && (
-          <div>
-            <p className="text-white font-bold text-base">CEVITAL</p>
-            <p className="text-blue-400 text-xs">Optima</p>
+  const SidebarContent = () => {
+    return (
+      <div className="flex flex-col h-full">
+        
+        {/* ════════════ HEADER LOGO ════════════ */}
+        <div className={cn(
+          'flex items-center gap-4 px-6 py-7 border-b border-slate-800 flex-shrink-0 relative bg-[#071322]',
+          collapsed && 'justify-center px-0'
+        )}>
+          <div className="relative flex-shrink-0 w-14 h-14 bg-gradient-to-tr from-blue-600 to-blue-400 rounded-xl flex items-center justify-center shadow-xl shadow-blue-600/10">
+            <Zap size={28} className="text-white drop-shadow-md"/>
           </div>
-        )}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-2">
-        {visibleSections.map(section => {
-          const Icon     = section.icon
-          const isDirect = section.items.length === 0
-          const href     = DIRECT_LINKS[section.title] ?? '#'
-
-          if (isDirect) {
-            const isActive = pathname === href
-            return (
-              <Link key={section.title} href={href}
-                className={cn(
-                  'flex items-center gap-4 px-5 py-4 rounded-xl text-base font-medium transition-all duration-200',
-                  isActive
-                    ? 'bg-[#1d6fd4] text-white shadow-lg shadow-blue-500/20'
-                    : 'text-white/60 hover:bg-blue-500/20 hover:text-white',
-                  collapsed && 'justify-center px-0 w-16'
-                )}>
-                <Icon size={22} className="flex-shrink-0"/>
-                {!collapsed && <span>{section.title}</span>}
-              </Link>
-            )
-          }
-
-          const hasActiveChild = section.items.some(i => pathname.startsWith(i.href))
-          const expanded       = openSections.includes(section.title)
-
-          return (
-            <div key={section.title} className={hasActiveChild ? 'bg-blue-500/10 -mx-2 px-2 rounded-xl' : ''}>
-              <button
-                onClick={() => !collapsed && toggleSection(section.title)}
-                className={cn(
-                  'w-full flex items-center gap-4 px-5 py-4 rounded-xl text-base font-medium transition-all duration-200',
-                  hasActiveChild
-                    ? 'bg-[#1d6fd4] text-white shadow-lg shadow-blue-500/20'
-                    : 'text-white/60 hover:bg-blue-500/20 hover:text-white',
-                  collapsed && 'justify-center px-0 w-16'
-                )}>
-                <Icon size={22} className={cn('flex-shrink-0', hasActiveChild && 'text-blue-200')}/>
-                {!collapsed && (
-                  <>
-                    <span className={cn('flex-1 text-left', hasActiveChild && 'font-semibold')}>{section.title}</span>
-                    {expanded
-                      ? <ChevronUp   size={18} className="opacity-60"/>
-                      : <ChevronDown size={18} className="opacity-60"/>
-                    }
-                  </>
-                )}
-              </button>
-
-              {!collapsed && expanded && (
-                <ul className="mt-2 ml-6 pl-4 border-l-2 border-blue-500/30 space-y-2">
-                  {section.items.map(item => {
-                    const isItemActive = pathname.startsWith(item.href)
-                    const showBadgeDI  = item.href === '/di/valider' && nbDINotifs   > 0 && role === 'METHODISTE'
-                    const showBadgeOT  = item.href === '/ot/mes-ot'  && nbOTAssignes > 0 && ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE'].includes(role || '')
-                    const showBadge    = showBadgeDI || showBadgeOT
-                    const badgeCount   = showBadgeDI ? nbDINotifs : nbOTAssignes
-                    return (
-                      <li key={item.href}>
-                        <Link href={item.href}
-                          className={cn(
-                            'block px-5 py-3 rounded-lg text-sm transition-all duration-200',
-                            isItemActive
-                              ? 'text-blue-400 font-semibold bg-blue-500/20'
-                              : 'text-white/50 hover:bg-blue-500/10 hover:text-white'
-                          )}>
-                          <span className="flex items-center justify-between">
-                            {item.label}
-                            {showBadge && (
-                              <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-bold rounded-full">
-                                {badgeCount > 9 ? '9+' : badgeCount}
-                              </span>
-                            )}
-                          </span>
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+          {!collapsed && (
+            <div className="relative">
+              <p className="text-white font-black text-2xl tracking-normal leading-none" style={{ fontFamily: '"Arial Black", sans-serif' }}>Cevital</p>
+              <p className="text-blue-400 font-bold text-xs tracking-wider uppercase mt-1.5" style={fontStyle}>Optima · GMAO</p>
             </div>
-          )
-        })}
-      </nav>
+          )}
+        </div>
 
-      <div className={cn(
-        'border-t border-blue-900/30 p-3',
-        collapsed && 'flex justify-center'
-      )}>
-        <button onClick={handleLogout}
-          className={cn(
-            'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium',
-            'text-red-400 hover:bg-red-500/20',
-            'transition-all duration-200 w-full',
-            collapsed && 'justify-center w-auto px-2'
-          )}>
-          <LogOut size={18} className="flex-shrink-0"/>
-          {!collapsed && <span>Deconnexion</span>}
-        </button>
+        {/* ════════════ NAVIGATION ÉPURÉE (SANS GROUPES) ════════════ */}
+        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-3 bg-[#0a192f]">
+          {visibleSections.map((section) => {
+            const Icon     = section.icon
+            const isDirect = section.items.length === 0
+            const href     = DIRECT_LINKS[section.title] ?? '#'
+
+            // ── Liens Directs ──
+            const renderDirect = () => {
+              const isActive = pathname === href
+              return (
+                <Link
+                  href={href}
+                  style={fontStyle}
+                  className={cn(
+                    'group relative flex items-center gap-5 px-5 py-4 rounded-xl text-lg font-bold transition-all duration-200',
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 ring-1 ring-blue-400/30'
+                      : 'text-slate-200 hover:bg-slate-800 hover:text-white',
+                    collapsed && 'justify-center px-0 w-16'
+                  )}
+                >
+                  <Icon size={24} className={cn('flex-shrink-0', isActive ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-105')}/>
+                  {!collapsed && <span>{section.title}</span>}
+                </Link>
+              )
+            }
+
+            // ── Dossiers Déroulants ──
+            const renderExpandable = () => {
+              const hasActiveChild = section.items.some(i => {
+                if (i.href === '/') return pathname === '/'
+                return pathname.startsWith(i.href)
+              })
+              const expanded = openSections.includes(section.title)
+
+              return (
+                <div className="space-y-1">
+                  <button
+                    onClick={() => !collapsed && toggleSection(section.title)}
+                    style={fontStyle}
+                    className={cn(
+                      'group relative w-full flex items-center gap-5 px-5 py-4 rounded-xl text-lg font-bold transition-all duration-200',
+                      hasActiveChild
+                        ? 'bg-slate-800 text-white border-l-4 border-blue-500'
+                        : 'text-slate-200 hover:bg-slate-800 hover:text-white',
+                      collapsed && 'justify-center px-0 w-16'
+                    )}
+                  >
+                    <Icon size={24} className={cn('flex-shrink-0', hasActiveChild ? 'text-blue-400' : 'text-slate-400 group-hover:text-white')}/>
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1 text-left">{section.title}</span>
+                        {expanded
+                          ? <ChevronUp   size={22} className="text-white"/>
+                          : <ChevronDown size={22} className="text-white"/>
+                        }
+                      </>
+                    )}
+                  </button>
+
+                  {!collapsed && expanded && (
+                    <ul className="mt-1 ml-6 pl-4 border-l-2 border-slate-700 space-y-2">
+                      {section.items.map(item => {
+                        const isItemActive = pathname.startsWith(item.href)
+                        const showBadgeDI  = item.href === '/di/valider' && nbDINotifs   > 0 && role === 'METHODISTE'
+                        const showBadgeOT  = item.href === '/ot/mes-ot'  && nbOTAssignes > 0 && ['MECANICIEN', 'TECHNICIEN', 'CHEF_EQUIPE'].includes(role || '')
+                        const showBadge    = showBadgeDI || showBadgeOT
+                        const badgeCount   = showBadgeDI ? nbDINotifs : nbOTAssignes
+                        return (
+                          <li key={item.href}>
+                            <Link
+                              href={item.href}
+                              style={fontStyle}
+                              className={cn(
+                                'group relative block px-4 py-3 rounded-lg text-base font-bold transition-all duration-200',
+                                isItemActive
+                                  ? 'text-cyan-400 bg-blue-955/30'
+                                  : 'text-slate-300 hover:text-white hover:bg-slate-800/50'
+                              )}
+                            >
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="flex items-center gap-3">
+                                  {isItemActive && (
+                                    <Circle size={8} fill="currentColor" className="text-cyan-400 flex-shrink-0"/>
+                                  )}
+                                  {item.label}
+                                </span>
+                                {showBadge && (
+                                  <span className="px-2.5 py-0.5 bg-red-600 text-white text-xs font-bold rounded-full min-w-[24px] text-center shadow-md">
+                                    {badgeCount > 9 ? '9+' : badgeCount}
+                                  </span>
+                                )}
+                              </span>
+                            </Link>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )
+            }
+
+            return (
+              <Fragment key={section.title}>
+                {isDirect ? renderDirect() : renderExpandable()}
+              </Fragment>
+            )
+          })}
+        </nav>
+
+        {/* ════════════ FOOTER : BOUTON BLEU ════════════ */}
+        <div className={cn(
+          'border-t border-slate-800 p-4 flex-shrink-0 bg-[#071322]',
+          collapsed && 'flex justify-center'
+        )}>
+          <button
+            onClick={handleLogout}
+            style={fontStyle}
+            className={cn(
+              'group flex items-center gap-4 px-5 py-4 rounded-xl text-lg font-bold w-full',
+              'text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/10 transition-all duration-200',
+              collapsed && 'justify-center px-2 w-auto'
+            )}
+            title="Déconnexion"
+          >
+            <LogOut size={22} className="flex-shrink-0 group-hover:translate-x-1 transition-transform"/>
+            {!collapsed && <span>Déconnexion</span>}
+          </button>
+        </div>
       </div>
-    </>
-  )
+    )
+  }
 
   return (
     <>
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="fixed top-4 left-4 z-50 lg:hidden w-10 h-10 rounded-xl bg-[#1d6fd4] border border-blue-400/30 flex items-center justify-center shadow-lg"
+        className="fixed top-4 left-4 z-50 lg:hidden w-14 h-14 rounded-xl bg-blue-600 flex items-center justify-center shadow-2xl"
       >
-        {mobileOpen ? <X size={18} className="text-white"/> : <Menu size={18} className="text-white"/>}
+        {mobileOpen ? <X size={26} className="text-white"/> : <Menu size={26} className="text-white"/>}
       </button>
 
       {mobileOpen && (
-        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setMobileOpen(false)}/>
+        <div className="fixed inset-0 bg-black/70 z-40 lg:hidden" onClick={() => setMobileOpen(false)}/>
       )}
 
-      <aside className={cn(
-        'hidden lg:flex flex-col h-screen transition-all duration-300',
-        'bg-[#0a1628] border-r border-blue-900/30',
-        collapsed ? 'w-20' : 'w-80'
-      )}>
+      <aside
+        className={cn(
+          'hidden lg:flex flex-col h-screen transition-all duration-300 relative border-r border-slate-800 shadow-2xl',
+          collapsed ? 'w-24' : 'w-86'
+        )}
+      >
         <SidebarContent/>
         <button onClick={() => setCollapsed(!collapsed)}
-          className="absolute -right-3 top-28 w-8 h-8 rounded-full flex items-center justify-center
-                     bg-[#1d6fd4] border border-blue-400/30
-                     text-white shadow-sm
-                     transition-all duration-200 z-10">
-          {collapsed ? <ChevronRight size={14}/> : <ChevronLeft size={14}/>}
+          className="absolute -right-4 top-28 w-9 h-9 rounded-full flex items-center justify-center
+                     bg-blue-600 text-white shadow-xl hover:scale-110 transition-all duration-200 z-10">
+          {collapsed ? <ChevronRight size={18}/> : <ChevronLeft size={18}/>}
         </button>
       </aside>
 
-      <aside className={cn(
-        'fixed inset-y-0 left-0 z-40 w-80 flex flex-col transition-transform duration-300 lg:hidden',
-        'bg-[#0a1628] border-r border-blue-900/30',
-        mobileOpen ? 'translate-x-0' : '-translate-x-full'
-      )}>
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 w-86 flex flex-col transition-transform duration-300 lg:hidden border-r border-slate-800',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
         <SidebarContent/>
       </aside>
     </>

@@ -207,8 +207,6 @@ def get_stock_par_code(
                     "designation": piece.designation,
                     "quantite": piece.quantite,
                     "seuil_alerte": piece.seuil_alerte,
-                    "emplacement": piece.emplacement,
-                    "unite": piece.unite,
                     "status": status
                 }
             }

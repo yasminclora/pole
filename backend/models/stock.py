@@ -32,21 +32,12 @@ class PieceStock(Base):
     designation  = Column(String(300), nullable=False)
     # ex: MOTEUR ELECTRIQUE  (normalisé UPPER)
 
-    description  = Column(Text, nullable=True)
-    # Notes complémentaires, références constructeur, etc.
-
     # Stock
     quantite        = Column(Integer, default=0, nullable=False)
     seuil_alerte    = Column(Integer, default=2, nullable=False)
     # 🔴 quantite == 0
     # 🟠 0 < quantite <= seuil_alerte
     # 🟢 quantite > seuil_alerte
-
-    emplacement  = Column(String(200), nullable=True)
-    # "Rayon A - Étagère 3 - Bac 12"
-
-    unite        = Column(String(20), default="pcs")
-    # pcs, m, L, kg...
 
     created_at   = Column(DateTime, server_default=func.now())
     updated_at   = Column(DateTime, onupdate=func.now())

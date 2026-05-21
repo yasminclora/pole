@@ -19,6 +19,7 @@ export interface AuthUser {
   date_embauche  : string
   date_naissance : string
   telephone      : string | null
+  photo_url      : string | null
 }
 
 interface AuthState {

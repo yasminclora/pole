@@ -26,3 +26,27 @@ backend/backend.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Uploads utilisateur (photos de profil, etc.)
+backend/uploads/avatars/*
+!backend/uploads/avatars/.gitkeep
+
+# Artefacts ML / storage temporaire
+backend/storage/
+
+# Builds Next
+frontend/.next/
+frontend/dist/
+frontend/out/
+
+# Tests Python
+.pytest_cache/
+.coverage
+htmlcov/
+
+# CSV de données brutes (volumineux, à régénérer via seed si besoin)
+# Décommenter si tu veux exclure :
+# backend/maintenance.csv
+# backend/equipment_clean.csv
+# backend/pieces_stock_final.csv
+# backend/composante_stock_mapping_final.csv

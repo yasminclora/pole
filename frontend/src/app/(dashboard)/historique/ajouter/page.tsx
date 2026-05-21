@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { historiqueService, equipementService, EquipementNode } from '@/services/historiqueService'
-import { Loader2, Upload, FileText, Check, ChevronRight, Search, X } from 'lucide-react'
+import { Loader2, Upload, FileText, Check, ChevronRight, Search, X, PlusCircle, Filter } from 'lucide-react'
 
 // ── Types ───────────────────────────────────────────────────────────
 interface User {
@@ -25,86 +25,23 @@ interface ChainNode {
 function HierarchyChain({ chain }: { chain: ChainNode[] }) {
   if (chain.length === 0) return null
   return (
-    <div className="flex items-center gap-1 flex-wrap mt-2">
+    <div className="flex items-center gap-1.5 flex-wrap mt-2">
       {chain.map((node, i) => (
-        <span key={node.id_equipement} className="flex items-center gap-1">
+        <span key={node.id_equipement} className="flex items-center gap-1.5">
           <span className={`
-            px-2 py-0.5 rounded text-xs font-medium
+            px-2.5 py-1 rounded-lg text-xs font-bold transition-all
             ${i === chain.length - 1
-              ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
+              ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 ring-1 ring-slate-300'
+              : 'bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400'}
           `}>
-            <span className="text-gray-400 dark:text-gray-500 mr-1">L{node.level}</span>
+            <span className="text-slate-400 dark:text-slate-500 mr-1.5 text-[10px] uppercase font-extrabold">L{node.level}</span>
             {node.equipment_code}
           </span>
           {i < chain.length - 1 && (
-            <ChevronRight size={12} className="text-gray-300 dark:text-gray-600" />
+            <ChevronRight size={14} className="text-slate-300 dark:text-slate-600" />
           )}
         </span>
       ))}
-    </div>
-  )
-}
-
-// ── Composant : selecteur d'enfants (navigation top-down) ───────────
-function ChildrenSelector({
-  parentId,
-  level,
-  onSelect,
-  selectedCode,
-}: {
-  parentId: number
-  level: number
-  onSelect: (node: EquipementNode) => void
-  selectedCode?: string
-}) {
-  const [children, setChildren] = useState<EquipementNode[]>([])
-  const [loading, setLoading]   = useState(true)
-
-  useEffect(() => {
-    setLoading(true)
-    equipementService.getChildren(parentId).then(data => {
-      setChildren(data)
-      setLoading(false)
-    })
-  }, [parentId])
-
-  if (loading) return (
-    <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
-      <Loader2 size={14} className="animate-spin" /> Chargement niveau {level}...
-    </div>
-  )
-
-  if (children.length === 0) return (
-    <p className="text-xs text-gray-400 italic py-1">Aucun sous-composant disponible</p>
-  )
-
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-        Niveau {level}
-      </label>
-      <div className="grid grid-cols-1 gap-1 max-h-40 overflow-y-auto pr-1">
-        {children.map(child => (
-          <button
-            key={child.id_equipement}
-            type="button"
-            onClick={() => onSelect(child)}
-            className={`
-              text-left px-3 py-2 rounded-lg text-sm transition-all border
-              ${selectedCode === child.equipment_code
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-purple-400'}
-            `}
-          >
-            <span className="font-mono text-xs font-bold mr-2">{child.equipment_code}</span>
-            <span className="text-xs opacity-80">{child.description}</span>
-            {child.has_children && (
-              <span className="ml-2 text-xs opacity-50">&rsaquo;</span>
-            )}
-          </button>
-        ))}
-      </div>
     </div>
   )
 }
@@ -114,9 +51,6 @@ export default function AjouterHistoriquePage() {
   const router  = useRouter()
   const [mode, setMode] = useState<'manuel' | 'csv'>('manuel')
   const [currentUser, setCurrentUser] = useState<User | null>(null)
-
-  // Mode de saisie equipement
-  const [searchMode, setSearchMode] = useState<'code' | 'tree'>('code')
 
   // Champ de recherche par code
   const [codeInput, setCodeInput]   = useState('')
@@ -129,11 +63,6 @@ export default function AjouterHistoriquePage() {
   // Hierarchie resolue
   const [chain, setChain]           = useState<ChainNode[]>([])
   const [selectedLeaf, setSelectedLeaf] = useState<EquipementNode | null>(null)
-
-  // Navigation top-down (mode arbre)
-  const [treeStack, setTreeStack]   = useState<{ node: EquipementNode; selectedChild?: EquipementNode }[]>([])
-  const [roots, setRoots]           = useState<EquipementNode[]>([])
-  const [rootsLoading, setRootsLoading] = useState(false)
 
   // Formulaire
   const [form, setForm] = useState({
@@ -158,83 +87,88 @@ export default function AjouterHistoriquePage() {
     if (userStr) setCurrentUser(JSON.parse(userStr))
   }, [])
 
-  // Charger les racines quand on passe en mode arbre
+  // Fermer les suggestions au clic extérieur
   useEffect(() => {
-    if (searchMode === 'tree' && roots.length === 0) {
-      setRootsLoading(true)
-      equipementService.getRoots().then(data => {
-        setRoots(data)
-        setRootsLoading(false)
-      })
+    function handleClickOutside(event: MouseEvent) {
+      if (suggRef.current && !suggRef.current.contains(event.target as Node)) {
+        setShowSugg(false)
+      }
     }
-  }, [searchMode])
-
-  // ── Autocomplete code ─────────────────────────────────────────────
-  const handleCodeInput = useCallback(async (val: string) => {
-    setCodeInput(val)
-    setCodeError('')
-    setChain([])
-    setSelectedLeaf(null)
-    if (val.length < 2) { setSuggestions([]); setShowSugg(false); return }
-    const results = await equipementService.search(val)
-    setSuggestions(results)
-    setShowSugg(results.length > 0)
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // ── Autocomplete avec Debounce (Evite le harcèlement de l'API) ─────
+  useEffect(() => {
+    const trimmed = codeInput.trim()
+    
+    // Si vide, trop court, ou correspond déjà à l'équipement validé, on ne fait rien
+    if (!trimmed || trimmed.length < 3 || (selectedLeaf && trimmed === selectedLeaf.equipment_code)) {
+      setSuggestions([])
+      setShowSugg(false)
+      return
+    }
+
+    const delayDebounce = setTimeout(async () => {
+      try {
+        const results = await equipementService.search(trimmed)
+        if (results && Array.isArray(results)) {
+          setSuggestions(results)
+          setShowSugg(results.length > 0)
+        } else {
+          setSuggestions([])
+          setShowSugg(false)
+        }
+      } catch (err) {
+        // Bloque toute propagation d'erreur vers les composants globaux
+        setSuggestions([])
+        setShowSugg(false)
+      }
+    }, 300) // Attend 300ms après la fin de la saisie avant d'interroger le serveur
+
+    return () => clearTimeout(delayDebounce)
+  }, [codeInput, selectedLeaf])
+
   const resolveCode = useCallback(async (code: string) => {
+    const targetCode = code.trim()
+    if (!targetCode || targetCode.length < 2) return
+    
     setCodeLoading(true)
     setCodeError('')
     setShowSugg(false)
-    const result = await equipementService.getByCode(code)
-    setCodeLoading(false)
-    if (!result) {
-      setCodeError('Code introuvable dans la base equipements')
+    try {
+      const result = await equipementService.getByCode(targetCode)
+      setCodeLoading(false)
+      if (!result) {
+        setCodeError('Code introuvable dans la base équipements')
+        setChain([])
+        setSelectedLeaf(null)
+        return
+      }
+      setChain(result.chain)
+      setSelectedLeaf(result.equipement)
+      setCodeInput(targetCode.toUpperCase())
+    } catch (err) {
+      setCodeLoading(false)
+      setCodeError('Code introuvable ou erreur de structure.')
       setChain([])
       setSelectedLeaf(null)
-      return
     }
-    setChain(result.chain)
-    setSelectedLeaf(result.equipement)
-    setCodeInput(code.toUpperCase())
   }, [])
-
-  // ── Navigation arbre top-down ─────────────────────────────────────
-  const handleRootSelect = (root: EquipementNode) => {
-    setTreeStack([{ node: root }])
-    setChain([root])
-    setSelectedLeaf(root)
-  }
-
-  const handleChildSelect = (child: EquipementNode, stackIndex: number) => {
-    // Tronquer le stack au niveau actuel + ajouter le nouvel enfant
-    const newStack = treeStack.slice(0, stackIndex + 1).map((s, i) =>
-      i === stackIndex ? { ...s, selectedChild: child } : s
-    )
-    if (child.has_children) {
-      newStack.push({ node: child })
-    }
-    setTreeStack(newStack)
-    // Mettre a jour la chaine
-    const newChain = [treeStack[0].node, ...newStack.slice(1).map(s => s.node), child]
-      .filter((v, i, a) => a.findIndex(x => x.id_equipement === v.id_equipement) === i)
-    setChain(newChain)
-    setSelectedLeaf(child)
-  }
-
-  // ── Equipement selectionne (feuille) ──────────────────────────────
-  const rootNode    = chain[0] || null
-  const parentNode  = chain[chain.length - 2] || null
 
   // ── Soumission ────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedLeaf || !rootNode) {
-      setMessage({ type: 'error', text: 'Veuillez selectionner un equipement' })
+    if (!selectedLeaf || !chain[0]) {
+      setMessage({ type: 'error', text: 'Veuillez sélectionner un équipement avant de valider.' })
       return
     }
     setLoading(true)
     setMessage(null)
     try {
+      const rootNode = chain[0]
+      const parentNode = chain[chain.length - 2] || null
+      
       await historiqueService.ajouter({
         system_equipment:      rootNode.equipment_code,
         equipment_description: selectedLeaf.description,
@@ -250,15 +184,13 @@ export default function AjouterHistoriquePage() {
         date_creation:         today,
         source:                form.source,
       })
-      setMessage({ type: 'success', text: 'Intervention ajoutee avec succes' })
-      // Reset equipement
+      setMessage({ type: 'success', text: 'Intervention ajoutée avec succès au registre historique.' })
       setChain([])
       setSelectedLeaf(null)
       setCodeInput('')
-      setTreeStack([])
       setForm(f => ({ ...f, cout_total: '', date_declaration: '', date_fin: '' }))
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data?.detail || 'Erreur' })
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Erreur lors de la création de l\'intervention' })
     } finally {
       setLoading(false)
     }
@@ -287,328 +219,277 @@ export default function AjouterHistoriquePage() {
       setCsvFile(null)
       setCsvPreview([])
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data?.detail || 'Erreur import' })
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Erreur lors de l\'importation du fichier' })
     } finally {
       setLoading(false)
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="space-y-6 pb-8">
 
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-8">
-        <div className="w-12 h-12 rounded-2xl bg-purple-600 flex items-center justify-center">
-          <FileText size={22} className="text-white" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Nouvelle Intervention Historique
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
-            Ajouter manuellement ou importer un fichier CSV
-          </p>
+      {/* ── BANNIÈRE EN-TÊTE BLEU CORPORATE ── */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#003B7A] via-[#004a8f] to-[#003B7A] p-10 text-white shadow-2xl">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"/>
+        <div className="absolute bottom-0 left-0 w-40 h-40 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2"/>
+        <div className="relative flex items-center justify-between flex-wrap gap-6">
+          <div className="flex items-center gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
+              <FileText size={28} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-black tracking-tight md:text-4xl text-white">Nouvelle Intervention</h1>
+              <p className="text-blue-100 text-base mt-2 font-medium">
+                Enregistrement manuel ou import groupé d'interventions dans l'historique général
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Tabs mode */}
-      <div className="flex gap-2 mb-6">
+      {/* ── TABS SÉLECTION DE MODE ── */}
+      <div className="flex bg-slate-100 p-1.5 rounded-xl max-w-sm border border-slate-200">
         {(['manuel', 'csv'] as const).map(m => (
-          <button key={m} onClick={() => setMode(m)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+          <button 
+            key={m} 
+            type="button"
+            onClick={() => setMode(m)}
+            className={`flex-1 py-2.5 text-center rounded-lg text-xs font-black tracking-wide uppercase transition-all ${
               mode === m
-                ? 'bg-purple-600 text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}>
-            {m === 'manuel' ? 'Formulaire manuel' : 'Import CSV'}
+                ? 'bg-white text-slate-800 shadow-md border border-slate-200/50'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            {m === 'manuel' ? 'Saisie Manuelle' : 'Import CSV'}
           </button>
         ))}
       </div>
 
-      {/* Message */}
+      {/* ── NOTIFICATION ── */}
       {message && (
-        <div className={`p-4 rounded-xl mb-6 flex items-start gap-2 ${
+        <div className={`p-4 rounded-xl font-bold text-sm flex items-start gap-3 border shadow-sm transition-all duration-200 ${
           message.type === 'success'
-            ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
-            : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            : 'bg-rose-50 text-rose-800 border-rose-200'
         }`}>
-          {message.type === 'success' ? <Check size={16} className="mt-0.5 shrink-0" /> : <span>⚠️</span>}
-          {message.text}
+          {message.type === 'success' ? <Check size={18} className="mt-0.5 shrink-0 text-emerald-600" /> : <span className="text-rose-600 font-black">⚠️</span>}
+          <div>{message.text}</div>
         </div>
       )}
 
-      {/* ── Mode manuel ─────────────────────────────────────────────── */}
+      {/* ── Saisie Manuelle ─────────────────────────────────────────────── */}
       {mode === 'manuel' && (
         <form onSubmit={handleSubmit} className="space-y-6">
 
-          {/* Section 1 : Selection equipement */}
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
-              1. Selection de l'equipement
-            </h2>
-
-            {/* Toggle mode saisie */}
-            <div className="flex gap-2 mb-5">
-              {([
-                ['code', 'Par code SAP'],
-                ['tree', 'Navigation arbre'],
-              ] as const).map(([val, label]) => (
-                <button key={val} type="button" onClick={() => {
-                  setSearchMode(val)
-                  setChain([])
-                  setSelectedLeaf(null)
-                  setCodeInput('')
-                  setTreeStack([])
-                }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
-                    searchMode === val
-                      ? 'bg-purple-600 text-white border-purple-600'
-                      : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-purple-400'
-                  }`}>
-                  {label}
-                </button>
-              ))}
+          {/* SECTION 1 : SÉLECTION ÉQUIPEMENT */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-slate-100 px-6 py-4 border-b border-slate-200">
+              <h2 className="text-sm font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                <Filter size={16} className="text-slate-500" /> 1. Identification de l'Équipement Cible
+              </h2>
             </div>
-
-            {/* Mode code */}
-            {searchMode === 'code' && (
-              <div className="space-y-3">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Code composante (SAP)
+            
+            <div className="p-6 space-y-6">
+              {/* Recherche par Code SAP */}
+              <div className="space-y-2 max-w-xl">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500">
+                  Code Composante SAP
                 </label>
                 <div className="relative" ref={suggRef}>
                   <div className="relative">
-                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       value={codeInput}
-                      onChange={e => handleCodeInput(e.target.value)}
+                      onChange={e => setCodeInput(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); resolveCode(codeInput) } }}
-                      placeholder="ex: B7716R0021-102  puis Entree"
-                      className="w-full pl-9 pr-24 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                                 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-mono
-                                 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="Ex: B7716R0021-102 (puis appuyez sur Entrée)"
+                      className="w-full pl-12 pr-24 py-3.5 border-2 border-slate-200 rounded-xl bg-white
+                        text-slate-900 placeholder-slate-400 font-bold font-mono text-sm shadow-sm
+                        focus:outline-none focus:border-slate-500 focus:ring-4 focus:ring-slate-500/10 transition-all"
                     />
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
                       {codeInput && (
                         <button type="button" onClick={() => { setCodeInput(''); setChain([]); setSelectedLeaf(null); setSuggestions([]); }}
-                          className="p-1 text-gray-400 hover:text-gray-600">
-                          <X size={14} />
+                          className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg transition-colors">
+                          <X size={15} />
                         </button>
                       )}
-                      <button type="button" onClick={() => resolveCode(codeInput)} disabled={codeLoading || !codeInput}
-                        className="px-3 py-1 bg-purple-600 text-white rounded-lg text-xs font-medium disabled:opacity-40">
-                        {codeLoading ? <Loader2 size={12} className="animate-spin" /> : 'OK'}
+                      <button 
+                        type="button" 
+                        onClick={() => resolveCode(codeInput)} 
+                        disabled={codeLoading || !codeInput}
+                        className="px-4 py-2 bg-[#003B7A] hover:bg-[#002a5a] text-white rounded-lg text-xs font-black uppercase tracking-wide transition-all shadow-sm disabled:opacity-40"
+                      >
+                        {codeLoading ? <Loader2 size={14} className="animate-spin" /> : 'OK'}
                       </button>
                     </div>
                   </div>
 
-                  {/* Suggestions autocomplete */}
+                  {/* Suggestions Autocomplete */}
                   {showSugg && (
-                    <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-52 overflow-y-auto divide-y divide-slate-50">
                       {suggestions.map(s => (
-                        <button key={s.id_equipement} type="button"
+                        <button 
+                          key={s.id_equipement} 
+                          type="button"
                           onClick={() => { setCodeInput(s.equipment_code); resolveCode(s.equipment_code); setShowSugg(false); }}
-                          className="w-full text-left px-4 py-2.5 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0">
-                          <span className="font-mono text-xs font-bold text-purple-600 mr-2">{s.equipment_code}</span>
-                          <span className="text-xs text-gray-500">{s.description}</span>
-                          <span className="ml-2 text-xs text-gray-300">L{s.level}</span>
+                          className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-center justify-between"
+                        >
+                          <div className="truncate">
+                            <span className="font-mono text-xs font-black text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 mr-2">{s.equipment_code}</span>
+                            <span className="text-xs text-slate-600 font-bold">{s.description}</span>
+                          </div>
+                          <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase">Niveau {s.level}</span>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
 
-                {codeError && (
-                  <p className="text-xs text-red-500 mt-1">{codeError}</p>
-                )}
+                {codeError && <p className="text-xs text-red-500 font-bold mt-1 pl-1">⚠️ {codeError}</p>}
               </div>
-            )}
 
-            {/* Mode arbre top-down */}
-            {searchMode === 'tree' && (
-              <div className="space-y-4">
-                {/* Racines */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                    Machine racine (Niveau 1)
-                  </label>
-                  {rootsLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-gray-400">
-                      <Loader2 size={14} className="animate-spin" /> Chargement...
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-1 max-h-40 overflow-y-auto pr-1">
-                      {roots.map(root => (
-                        <button key={root.id_equipement} type="button"
-                          onClick={() => handleRootSelect(root)}
-                          className={`text-left px-3 py-2 rounded-lg text-sm transition-all border ${
-                            treeStack[0]?.node.id_equipement === root.id_equipement
-                              ? 'bg-purple-600 text-white border-purple-600'
-                              : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-purple-400'
-                          }`}>
-                          <span className="font-mono text-xs font-bold mr-2">{root.equipment_code}</span>
-                          <span className="text-xs opacity-80">{root.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Selecteurs enfants en cascade */}
-                {treeStack.map((frame, idx) => (
-                  idx < treeStack.length - 1 ? null : (
-                    <ChildrenSelector
-                      key={frame.node.id_equipement}
-                      parentId={frame.node.id_equipement}
-                      level={frame.node.level + 1}
-                      selectedCode={frame.selectedChild?.equipment_code}
-                      onSelect={child => handleChildSelect(child, idx)}
-                    />
-                  )
-                ))}
-              </div>
-            )}
-
-            {/* Chaine resolue */}
-            {chain.length > 0 && (
-              <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-100 dark:border-purple-800">
-                <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 mb-1">
-                  Equipement selectionne
-                </p>
-                <HierarchyChain chain={chain} />
-                {selectedLeaf && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                    {selectedLeaf.description}
+              {/* Résumé de sélection de la chaîne */}
+              {chain.length > 0 && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner space-y-2">
+                  <p className="text-xs font-black text-slate-600 uppercase tracking-wider">
+                    Structure Technique Validée
                   </p>
-                )}
-              </div>
-            )}
+                  <HierarchyChain chain={chain} />
+                  {selectedLeaf && (
+                    <p className="text-xs text-slate-500 font-bold bg-white p-2.5 rounded-xl border border-slate-100 inline-block mt-2 shadow-sm">
+                      Désignation complète : <span className="text-slate-800 font-extrabold">{selectedLeaf.description}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Section 2 : Intervention */}
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
-              2. Details de l'intervention
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
+          {/* SECTION 2 : DÉTAILS INTERVENTION */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-slate-100 px-6 py-4 border-b border-slate-200">
+              <h2 className="text-sm font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                <PlusCircle size={16} className="text-slate-500" /> 2. Métadonnées et Spécifications du Travail
+              </h2>
+            </div>
+            
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
               {/* Type travail */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Type de travail *
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500">
+                  Type de Travail *
                 </label>
                 <select
                   value={form.type_travail}
                   onChange={e => setForm(f => ({ ...f, type_travail: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm
-                             focus:outline-none focus:ring-2 focus:ring-purple-500">
-                  <option value="CORR">CORR — Correctif</option>
-                  <option value="PREV">PREV — Preventif</option>
+                  className="w-full appearance-none px-4 py-3 rounded-xl border-2 border-slate-200 bg-white text-sm font-bold cursor-pointer text-slate-800 focus:border-slate-500 focus:outline-none transition-all shadow-sm"
+                >
+                  <option value="CORR">CORR — Correctif historique</option>
+                  <option value="PREV">PREV — Préventif périodique</option>
                 </select>
               </div>
 
-              {/* Entite */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Entite executante
+              {/* Entité */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-400">
+                  Entité Exécutante (Pôle)
                 </label>
                 <input
-                  value={currentUser?.nom_pole || ''}
+                  value={currentUser?.nom_pole || 'LLK - Lalla Khedidja Eau Minerale'}
                   disabled
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                             bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-500 text-sm cursor-not-allowed"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-500 text-sm font-bold cursor-not-allowed shadow-inner"
                 />
               </div>
 
-              {/* Date declaration */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Date declaration *
+              {/* Date déclaration */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500">
+                  Date de Déclaration / Déclenchement *
                 </label>
-                <input type="date" required
+                <input 
+                  type="date" 
+                  required
                   value={form.date_declaration}
                   onChange={e => setForm(f => ({ ...f, date_declaration: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm
-                             focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl bg-white text-slate-900 font-bold text-sm shadow-sm focus:outline-none focus:border-slate-500 transition-all"
                 />
               </div>
 
               {/* Date fin */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Date fin <span className="text-gray-400 font-normal">(optionnel)</span>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500">
+                  Date de Clôture / Fin <span className="text-slate-400 font-medium lowercase">(optionnel)</span>
                 </label>
-                <input type="date"
+                <input 
+                  type="date"
                   value={form.date_fin}
                   min={form.date_declaration}
                   onChange={e => setForm(f => ({ ...f, date_fin: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm
-                             focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl bg-white text-slate-900 font-bold text-sm shadow-sm focus:outline-none focus:border-slate-500 transition-all"
                 />
               </div>
 
-              {/* Date creation -- grisee */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Date creation
-                  <span className="ml-2 text-xs text-gray-400 font-normal">(aujourd'hui, non modifiable)</span>
+              {/* Date création */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-400">
+                  Date d'Enregistrement Système
                 </label>
-                <input type="date" disabled value={today}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                             bg-gray-100 dark:bg-gray-800 text-gray-400 text-sm cursor-not-allowed"
+                <input 
+                  type="date" 
+                  disabled 
+                  value={today}
+                  className="w-full px-4 py-3 border-2 border-slate-100 bg-slate-50 text-slate-400 text-sm font-bold cursor-not-allowed shadow-inner"
                 />
               </div>
 
-              {/* Cout */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Cout total (DA)
+              {/* Coût */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500">
+                  Coût Total Estimé (DA)
                 </label>
-                <input type="number" step="0.01" min="0"
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0"
                   value={form.cout_total}
                   onChange={e => setForm(f => ({ ...f, cout_total: e.target.value }))}
-                  placeholder="0.00"
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm
-                             focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="0.00 DA"
+                  className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl bg-white text-slate-900 font-bold text-sm shadow-sm focus:outline-none focus:border-slate-500 transition-all"
                 />
               </div>
 
               {/* Source */}
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Source
+              <div className="sm:col-span-2 space-y-1.5">
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500">
+                  Référence Source / Tag d'Origine
                 </label>
                 <input
                   value={form.source}
                   onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
-                  placeholder="ex: 2025_CORRECTIF"
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                             bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm
-                             focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="Ex: ARCHIVE_EXCEL_2026_CORRECTIF"
+                  className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl bg-white text-slate-900 font-bold text-sm shadow-sm focus:outline-none focus:border-slate-500 transition-all"
                 />
               </div>
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 justify-end">
-            <button type="button" onClick={() => router.push('/dashboard')}
-              className="px-6 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                         text-gray-600 dark:text-gray-400 text-sm font-medium
-                         hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
+          {/* ACTIONS FORMULAIRE */}
+          <div className="flex gap-3 justify-end items-center pt-2">
+            <button 
+              type="button" 
+              onClick={() => router.push('/dashboard')}
+              className="px-6 py-3 rounded-xl border-2 border-slate-200 text-slate-600 font-black text-xs uppercase tracking-wide bg-white hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm"
+            >
               Annuler
             </button>
-            <button type="submit" disabled={loading || !selectedLeaf}
-              className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-purple-600
-                         hover:bg-purple-700 text-white text-sm font-medium
-                         disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+            <button 
+              type="submit" 
+              disabled={loading || !selectedLeaf}
+              className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#003B7A] hover:bg-[#002a5a] text-white text-xs font-black uppercase tracking-wider transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+            >
               {loading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-              Ajouter
+              Inscrire au Registre
             </button>
           </div>
         </form>
@@ -616,59 +497,77 @@ export default function AjouterHistoriquePage() {
 
       {/* ── Mode CSV ─────────────────────────────────────────────────── */}
       {mode === 'csv' && (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 space-y-6">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Import fichier CSV
-          </h2>
-          <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-2xl p-8
-                          text-center hover:border-purple-400 transition-colors">
-            <Upload size={40} className="text-gray-400 mx-auto mb-4" />
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-              Glissez votre fichier CSV ici ou
-            </p>
-            <label className="inline-block px-4 py-2 bg-purple-600 text-white rounded-xl text-sm
-                              cursor-pointer hover:bg-purple-700 transition-colors">
-              Parcourir
-              <input type="file" accept=".csv" onChange={handleFileChange} className="hidden" />
-            </label>
-            {csvFile && <p className="mt-2 text-sm text-purple-600">{csvFile.name}</p>}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-slate-100 px-6 py-4 border-b border-slate-200">
+            <h2 className="text-sm font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+              <Upload size={16} className="text-slate-500" /> Importation de Fichiers d'Interventions Groupés
+            </h2>
           </div>
-
-          {csvPreview.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Apercu (5 premieres lignes)
-              </h3>
-              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-                <table className="w-full text-xs text-left">
-                  <tbody>
-                    {csvPreview.map((row, idx) => (
-                      <tr key={idx} className={idx === 0 ? 'font-bold bg-gray-50 dark:bg-gray-800' : 'border-t border-gray-100 dark:border-gray-800'}>
-                        {row.map((cell, cidx) => (
-                          <td key={cidx} className="px-3 py-2 text-gray-700 dark:text-gray-300">{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          
+          <div className="p-6 space-y-6">
+            <div className="border-4 border-dashed border-slate-200 rounded-2xl p-10 text-center bg-slate-50/50 hover:border-slate-400 hover:bg-slate-100/50 transition-all cursor-pointer group">
+              <Upload size={48} className="text-slate-400 group-hover:text-slate-600 mx-auto mb-4 transition-colors" />
+              <p className="text-sm text-slate-600 font-bold mb-3">
+                Glissez-déposez votre fichier de données .csv ici, ou utilisez le sélecteur
+              </p>
+              <label className="inline-block px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer transition-all shadow-md">
+                Parcourir les disques
+                <input type="file" accept=".csv" onChange={handleFileChange} className="hidden" />
+              </label>
+              {csvFile && (
+                <div className="mt-4 inline-flex items-center gap-2 bg-slate-100 border border-slate-300 text-slate-700 px-4 py-2 rounded-xl text-xs font-black font-mono">
+                  <FileText size={14}/> {csvFile.name}
+                </div>
+              )}
             </div>
-          )}
 
-          <div className="flex gap-3 justify-end">
-            <button type="button" onClick={() => { setCsvFile(null); setCsvPreview([]) }}
-              className="px-6 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                         text-gray-600 dark:text-gray-400 text-sm font-medium
-                         hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
-              Annuler
-            </button>
-            <button onClick={handleImportCSV} disabled={!csvFile || loading}
-              className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-purple-600
-                         hover:bg-purple-700 text-white text-sm font-medium
-                         disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-              Importer
-            </button>
+            {/* Aperçu CSV */}
+            {csvPreview.length > 0 && (
+              <div className="space-y-2.5">
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  Aperçu Technique Structurel <span className="text-[10px] text-slate-400 font-bold font-mono">(5 premières lignes)</span>
+                </h3>
+                <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
+                  <table className="w-full text-left border-collapse">
+                    <tbody>
+                      {csvPreview.map((row, idx) => (
+                        <tr 
+                          key={idx} 
+                          className={`
+                            ${idx === 0 
+                              ? 'bg-slate-100 text-slate-700 font-black border-b border-slate-200 text-xs' 
+                              : 'border-b border-slate-100 text-[11px] font-medium text-slate-600 hover:bg-slate-50/60'}
+                          `}
+                        >
+                          {row.map((cell, cidx) => (
+                            <td key={cidx} className="px-4 py-3 max-w-[200px] truncate font-mono">{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Actions CSV */}
+            <div className="flex gap-3 justify-end items-center pt-4 border-t border-slate-100">
+              <button 
+                type="button" 
+                onClick={() => { setCsvFile(null); setCsvPreview([]) }}
+                className="px-6 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-black text-xs uppercase tracking-wide bg-white hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm"
+              >
+                Vider la sélection
+              </button>
+              <button 
+                onClick={handleImportCSV} 
+                disabled={!csvFile || loading}
+                className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {loading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                Lancer l'injection CSV
+              </button>
+            </div>
           </div>
         </div>
       )}

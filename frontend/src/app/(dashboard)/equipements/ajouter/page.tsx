@@ -7,53 +7,60 @@ import { equipementsService } from '@/services/equipementsService'
 import { polesService } from '@/services/polesService'
 import { zonesService } from '@/services/zonesService'
 import {
-  ArrowLeft, Plus, Loader2, Check, AlertCircle, Factory
+  ArrowLeft, Plus, Loader2, Check, AlertCircle, Cpu, MapPin, Calendar, Info, BarChart3
 } from 'lucide-react'
 
-const inputClass = `w-full px-3 py-2.5 rounded-xl border
-  border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800
-  text-gray-900 dark:text-white text-sm
-  focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`
+// Styles constants pour l'uniformité
+const labelClass = `block text-[11px] font-bold text-gray-400 uppercase tracking-[0.15em] mb-2`
+const inputClass = `w-full px-4 py-3.5 rounded-xl border border-gray-100 bg-white
+  text-gray-900 text-sm font-semibold transition-all duration-300
+  focus:outline-none focus:border-[#0052CC] focus:ring-4 focus:ring-[#0052CC]/5 shadow-sm`
 
 export default function AjouterMachinePage() {
   const router   = useRouter()
   const authUser = useSelector((s: RootState) => s.auth.user)
   const isAdmin  = authUser?.role === 'ADMIN'
-  const userPole = Number(authUser?.id_pole)
 
-  const [poles,   setPoles]   = useState<any[]>([])
-  const [zones,   setZones]   = useState<any[]>([])
+  const [poles,   setPoles]   = useState([])
+  const [zones,   setZones]   = useState([])
   const [saving,  setSaving]  = useState(false)
-  const [succes,  setSucces]  = useState<any>(null)
+  const [succes,  setSucces]  = useState(null)
   const [erreur,  setErreur]  = useState('')
 
   const [form, setForm] = useState({
     equipment_code : '',
     description    : '',
-    id_pole        : isAdmin ? '' : String(userPole),
+    id_pole        : '',
     id_zone        : '',
     install_date   : '',
     categorie      : '',
     status         : 'NORMAL',
   })
 
-  // Charger les pôles
+  // 1. Gestion stable du chargement initial des pôles selon le rôle de l'utilisateur
   useEffect(() => {
-    if (isAdmin) {
-      polesService.lister().then(setPoles)
-    } else {
-      // Si pas admin → on charge juste son pôle
-      polesService.lister().then(data => {
+    if (!authUser) return
+
+    polesService.lister().then(data => {
+      if (authUser.role === 'ADMIN') {
+        setPoles(data)
+      } else {
+        const userPole = Number(authUser.id_pole)
         const monPole = data.filter((p: any) => p.id_pole === userPole)
         setPoles(monPole)
-      })
-    }
-  }, [])
+        // Pré-remplir le pôle pour le méthodiste de manière sécurisée
+        setForm(f => ({ ...f, id_pole: String(userPole) }))
+      }
+    }).catch(err => console.error("Erreur chargement pôles :", err))
+  }, [authUser])
 
-  // Charger les zones quand le pôle change
+  // 2. Chargement stable des zones lors du changement de pôle
   useEffect(() => {
     if (form.id_pole) {
-      zonesService.parPole(Number(form.id_pole)).then(setZones)
+      zonesService.parPole(Number(form.id_pole))
+        .then(setZones)
+        .catch(err => console.error("Erreur chargement zones :", err))
+      
       setForm(f => ({ ...f, id_zone: '' }))
     } else {
       setZones([])
@@ -64,299 +71,169 @@ export default function AjouterMachinePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.equipment_code.trim()) {
-      setErreur('Le code est obligatoire'); return
-    }
-    if (!form.description.trim()) {
-      setErreur('La description est obligatoire'); return
-    }
-    if (!form.id_pole) {
-      setErreur('Selectionnez un pole'); return
+    if (!form.equipment_code.trim() || !form.description.trim() || !form.id_pole) {
+      return setErreur('Veuillez remplir tous les champs obligatoires (*)')
     }
     setSaving(true); setErreur('')
     try {
       const res = await equipementsService.creer({
-        equipment_code : form.equipment_code.trim().toUpperCase(),
-        description    : form.description.trim(),
-        id_pole        : Number(form.id_pole),
-        id_zone        : form.id_zone ? Number(form.id_zone) : undefined,
-        install_date   : form.install_date || undefined,
-        categorie      : form.categorie.trim() || undefined,
-        status         : form.status,
+        ...form,
+        equipment_code: form.equipment_code.trim().toUpperCase(),
+        id_pole: Number(form.id_pole),
+        id_zone: form.id_zone ? Number(form.id_zone) : undefined,
       })
       setSucces(res)
     } catch (err: any) {
-      setErreur(err.response?.data?.detail ?? 'Erreur')
+      setErreur(err.response?.data?.detail ?? 'Erreur lors de la création')
     } finally { setSaving(false) }
   }
 
-  const resetForm = () => {
-    setSucces(null)
-    setForm({
-      equipment_code: '',
-      description   : '',
-      id_pole       : isAdmin ? '' : String(userPole),
-      id_zone       : '',
-      install_date  : '',
-      categorie     : '',
-      status        : 'NORMAL',
-    })
-  }
-
   if (succes) return (
-    <div className="max-w-md mx-auto mt-20 text-center">
-      <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30
-                      flex items-center justify-center mx-auto mb-5">
-        <Check size={36} className="text-green-500"/>
-      </div>
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-        Machine creee !
-      </h2>
-      <p className="font-mono font-bold text-blue-600 text-lg mb-1">
-        {succes.equipment_code}
-      </p>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">
-        {succes.description}
-      </p>
-      {succes.nom_pole && (
-        <p className="text-gray-400 text-sm mb-6">
-          Pole : {succes.nom_pole}
-        </p>
-      )}
-      <div className="flex gap-3 justify-center">
-        <button onClick={resetForm}
-          className="px-5 py-2.5 rounded-xl border border-gray-200
-                     dark:border-gray-700 text-gray-600 text-sm
-                     hover:bg-gray-50 dark:hover:bg-gray-800">
-          Nouvelle machine
-        </button>
-        <button
-          onClick={() => router.push(`/equipements/${succes.id_equipement}`)}
-          className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700
-                     text-white text-sm font-medium">
-          Voir l'arbre
-        </button>
+    <div className="flex-grow p-12 bg-[#F8FAFC] flex items-center justify-center">
+      <div className="w-full max-w-lg bg-white rounded-3xl p-10 shadow-2xl border border-gray-50 text-center animate-in fade-in zoom-in duration-300">
+        <div className="w-20 h-20 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Check className="w-10 h-10" />
+        </div>
+        <h2 className="text-2xl font-black text-[#001F3F] mb-2">Équipement Enregistré</h2>
+        <p className="text-gray-500 mb-8 font-medium">La machine <strong>{succes.equipment_code}</strong> est maintenant active dans le parc.</p>
+        <div className="flex gap-4">
+          <button type="button" onClick={() => setSucces(null)} className="flex-1 py-4 bg-gray-100 text-gray-700 rounded-2xl font-bold hover:bg-gray-200 transition-all">Nouveau</button>
+          <button type="button" onClick={() => router.push('/equipements')} className="flex-1 py-4 bg-[#0052CC] text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:scale-[1.02] transition-all">Retour au parc</button>
+        </div>
       </div>
     </div>
   )
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="flex-grow flex flex-col bg-[#F8FAFC]">
+      
+      {/* HEADER HERO (Style bannières SCADA de vos maquettes) */}
+      <div className="bg-[#001F3F] p-8 pb-20 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -mr-32 -mt-32"></div>
+        
+        <div className="max-w-[1600px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="flex items-center gap-6">
+            <button type="button" onClick={() => router.back()} className="w-12 h-12 rounded-2xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all">
+              <ArrowLeft className="w-6 h-6" />
+            </button>
+            <div>
+              <h1 className="text-3xl font-black text-white tracking-tight">Ajouter un équipement</h1>
+              <p className="text-blue-300/80 font-bold text-xs uppercase tracking-[0.2em] mt-1">Configuration du Parc Machines • Niveau 1</p>
+            </div>
+          </div>
 
-      {/* En-tête */}
-      <div className="flex items-center gap-4 mb-8">
-        <button onClick={() => router.back()}
-          className="w-10 h-10 rounded-xl border border-gray-200
-                     dark:border-gray-700 flex items-center justify-center
-                     text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
-          <ArrowLeft size={18}/>
-        </button>
-        <div className="w-12 h-12 rounded-2xl bg-blue-600
-                        flex items-center justify-center">
-          <Factory size={22} className="text-white"/>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Nouvelle machine
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
-            Equipement racine (Level 1)
-          </p>
+          <div className="flex gap-4">
+           
+            <div className="bg-white/5 border border-white/10 p-4 rounded-2xl min-w-[160px]">
+              <p className="text-[10px] font-black text-blue-300 uppercase mb-1">Type Entrée</p>
+              <p className="text-white font-bold text-sm">Équipement Racine</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      {/* CONTENU DU FORMULAIRE ASYMÉTRIQUE PLEINE LARGEUR */}
+      <form onSubmit={handleSubmit} className="max-w-[1600px] w-full mx-auto px-8 -mt-10 mb-12 relative z-20">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* COLONNE 1 : IDENTITÉ TECHNIQUE */}
+          <div className="bg-white rounded-3xl p-8 shadow-xl shadow-blue-900/5 space-y-6 border border-gray-50">
+            <div className="flex items-center gap-3 mb-2">
+              <Cpu className="text-[#0052CC] w-5 h-5" />
+              <h2 className="font-black text-[#001F3F] uppercase text-xs tracking-widest">Identification Technique</h2>
+            </div>
+            
+            <div>
+              <label className={labelClass}>Code Unique de l'Équipement *</label>
+              <input type="text" value={form.equipment_code} onChange={e => set('equipment_code', e.target.value)} placeholder="Ex: B7214T0007" className={inputClass} />
+            </div>
 
-        {/* Identification */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200
-                        dark:border-gray-800 rounded-2xl p-5 space-y-4">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase
-                         tracking-wider">
-            Identification
-          </h2>
+            <div>
+              <label className={labelClass}>Désignation Complète *</label>
+              <input type="text" value={form.description} onChange={e => set('description', e.target.value)} placeholder="Ex: SOUFFLEUSE SBO 20 SIDEL" className={inputClass} />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700
-                              dark:text-gray-300 mb-1.5">
-              Code equipement *
-            </label>
-            <input
-              value={form.equipment_code}
-              onChange={e => set('equipment_code', e.target.value)}
-              placeholder="ex: B7214T0007"
-              className={inputClass}/>
-            <p className="text-xs text-gray-400 mt-1">
-              Code unique — sera converti en majuscules automatiquement
-            </p>
+            <div>
+              <label className={labelClass}>Catégorie / Groupe</label>
+              <input type="text" value={form.categorie} onChange={e => set('categorie', e.target.value)} placeholder="Ex: EMBALLAGE" className={inputClass} />
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700
-                              dark:text-gray-300 mb-1.5">
-              Description *
-            </label>
-            <input
-              value={form.description}
-              onChange={e => set('description', e.target.value)}
-              placeholder="ex: SOUFFLEUSE SBO 20 SIDEL"
-              className={inputClass}/>
-          </div>
+          {/* COLONNE 2 : LOCALISATION USINE AVEC SELECTEUR PRO */}
+          <div className="bg-white rounded-3xl p-8 shadow-xl shadow-blue-900/5 space-y-6 border border-gray-50">
+            <div className="flex items-center gap-3 mb-2">
+              <MapPin className="text-[#0052CC] w-5 h-5" />
+              <h2 className="font-black text-[#001F3F] uppercase text-xs tracking-widest">Localisation Usine</h2>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700
-                              dark:text-gray-300 mb-1.5">
-              Categorie
-            </label>
-            <input
-              value={form.categorie}
-              onChange={e => set('categorie', e.target.value)}
-              placeholder="ex: B7214"
-              className={inputClass}/>
-          </div>
-        </div>
-
-        {/* Localisation */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200
-                        dark:border-gray-800 rounded-2xl p-5 space-y-4">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase
-                         tracking-wider">
-            Localisation
-          </h2>
-
-          {/* Pôle */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700
-                              dark:text-gray-300 mb-1.5">
-              Pole *
-            </label>
-            {poles.length === 0 ? (
-              <div className="flex items-center gap-2 text-gray-400 text-sm">
-                <Loader2 size={14} className="animate-spin"/>
-                Chargement...
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div>
+              <label className={labelClass}>Pôle de rattachement *</label>
+              <select value={form.id_pole} onChange={e => set('id_pole', e.target.value)} disabled={!isAdmin} className={`${inputClass} appearance-none cursor-pointer ${!isAdmin && 'bg-gray-50 opacity-70 text-gray-500'}`}>
+                <option value="">-- Sélectionner un pôle --</option>
                 {poles.map(p => (
-                  <button key={p.id_pole} type="button"
-                    onClick={() => set('id_pole', String(p.id_pole))}
-                    className={`flex flex-col items-start p-3 rounded-xl border
-                               text-left transition-all ${
-                      form.id_pole === String(p.id_pole)
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    }`}>
-                    <span className="font-mono text-xs font-bold text-blue-600
-                                     dark:text-blue-400">
-                      {p.code_pole}
-                    </span>
-                    <span className={`text-xs mt-0.5 ${
-                      form.id_pole === String(p.id_pole)
-                        ? 'text-blue-700 dark:text-blue-300 font-medium'
-                        : 'text-gray-600 dark:text-gray-400'
-                    }`}>
-                      {p.nom_pole}
-                    </span>
-                    {form.id_pole === String(p.id_pole) && (
-                      <Check size={11} className="text-blue-500 mt-1"/>
-                    )}
-                  </button>
+                  <option key={p.id_pole} value={String(p.id_pole)}>{p.nom_pole}</option>
                 ))}
-              </div>
-            )}
-          </div>
-
-          {/* Zone — apparaît seulement si pôle sélectionné */}
-          {form.id_pole && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700
-                                dark:text-gray-300 mb-1.5">
-                Zone
-                <span className="text-gray-400 font-normal ml-1">(optionnel)</span>
-              </label>
-              {zones.length === 0 ? (
-                <p className="text-xs text-gray-400">
-                  Aucune zone dans ce pole
-                </p>
-              ) : (
-                <select
-                  value={form.id_zone}
-                  onChange={e => set('id_zone', e.target.value)}
-                  className={inputClass}>
-                  <option value="">-- Aucune --</option>
-                  {zones.map(z => (
-                    <option key={z.id_zone} value={z.id_zone}>
-                     {z.code_zone} — {z.nom_zone}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Informations complémentaires */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200
-                        dark:border-gray-800 rounded-2xl p-5 space-y-4">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase
-                         tracking-wider">
-            Informations complementaires
-          </h2>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700
-                                dark:text-gray-300 mb-1.5">
-                Date installation
-              </label>
-              <input
-                type="date"
-                value={form.install_date}
-                onChange={e => set('install_date', e.target.value)}
-                className={inputClass}/>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700
-                                dark:text-gray-300 mb-1.5">
-                Statut
-              </label>
-              <select
-                value={form.status}
-                onChange={e => set('status', e.target.value)}
-                className={inputClass}>
-                <option value="NORMAL">NORMAL</option>
-                <option value="EN_PANNE">EN PANNE</option>
-                <option value="ARRETE">ARRETE</option>
               </select>
             </div>
-          </div>
-        </div>
 
-        {erreur && (
-          <div className="flex items-center gap-2 p-4 rounded-xl
-                          bg-red-50 dark:bg-red-900/20
-                          border border-red-200 dark:border-red-800
-                          text-red-600 dark:text-red-400 text-sm">
-            <AlertCircle size={15}/> {erreur}
-          </div>
-        )}
+            {form.id_pole && (
+              <div className="animate-in slide-in-from-top-2 duration-300">
+                <label className={labelClass}>Zone Opérationnelle</label>
+                <select value={form.id_zone} onChange={e => set('id_zone', e.target.value)} className={`${inputClass} appearance-none cursor-pointer`}>
+                  <option value="">-- Équipement Zone / Général --</option>
+                  {zones.map(z => (
+                    <option key={z.id_zone} value={String(z.id_zone)}>{z.nom_zone}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-        <div className="flex gap-3 justify-end pb-6">
-          <button type="button" onClick={() => router.back()}
-            className="px-6 py-2.5 rounded-xl border border-gray-200
-                       dark:border-gray-700 text-gray-600 dark:text-gray-400
-                       text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
-            Annuler
-          </button>
-          <button type="submit" disabled={saving}
-            className="flex items-center gap-2 px-8 py-2.5 rounded-xl
-                       bg-blue-600 hover:bg-blue-700 text-white text-sm
-                       font-medium disabled:opacity-40 transition-all">
-            {saving
-              ? <><Loader2 size={16} className="animate-spin"/> Creation...</>
-              : <><Plus size={16}/> Creer la machine</>
-            }
-          </button>
+          
+          </div>
+
+          {/* COLONNE 3 : SPÉCIFICATIONS TECHNIQUE & CONFIRMATION */}
+          <div className="bg-white rounded-3xl p-8 shadow-xl shadow-blue-900/5 space-y-6 border border-gray-50 flex flex-col">
+            <div className="flex items-center gap-3 mb-2">
+              <BarChart3 className="text-[#0052CC] w-5 h-5" />
+              <h2 className="font-black text-[#001F3F] uppercase text-xs tracking-widest">État de Mise en Service</h2>
+            </div>
+
+            <div>
+              <label className={labelClass}>Date d'Installation</label>
+              <div className="relative">
+                <Calendar className="absolute right-4 top-3.5 w-5 h-5 text-gray-300 pointer-events-none" />
+                <input type="date" value={form.install_date} onChange={e => set('install_date', e.target.value)} className={inputClass} />
+              </div>
+            </div>
+
+            <div>
+              <label className={labelClass}>Statut de Départ</label>
+              <select value={form.status} onChange={e => set('status', e.target.value)} className={inputClass}>
+                <option value="NORMAL">🟢 OPÉRATIONNEL</option>
+                <option value="EN PANNE">🔴 EN PANNE CRITIQUE</option>
+                <option value="ARRETE">🟡 ARRÊTÉ / HORS SERVICE</option>
+              </select>
+            </div>
+
+            <div className="mt-auto pt-6 border-t border-gray-50 space-y-4">
+              {erreur && (
+                <div className="p-4 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0" /> {erreur}
+                </div>
+              )}
+              
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => router.back()} className="flex-1 py-4 text-gray-400 font-black text-xs uppercase tracking-widest hover:text-gray-600 transition-all">
+                  Annuler
+                </button>
+                <button type="submit" disabled={saving} className="flex-[2] py-4 bg-[#0052CC] text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-200 hover:shadow-blue-300 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Créer la Machine
+                </button>
+              </div>
+            </div>
+          </div>
+
         </div>
       </form>
     </div>

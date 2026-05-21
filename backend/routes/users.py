@@ -51,6 +51,7 @@ def user_to_dict(u: Utilisateur, db: Session) -> dict:
         "id_equipe"      : u.id_equipe,
         "nom_pole"       : pole.nom_pole     if pole   else None,
         "nom_equipe"     : equipe.nom_equipe if equipe else None,
+        "photo_url"      : u.photo_url,
     }
 
 @router.get("/")
@@ -628,3 +629,90 @@ def changer_mdp(id_user: int, data: dict, db: Session = Depends(get_db)):
 
 # Sentinel pour marquer la fin du doublon historique — voir route /imprimer en haut du fichier
 _ROLE_LABELS_LEGACY_REMOVED = True
+
+
+# ════════════════════════════════════════════════════════════════════
+# Upload photo de profil
+# ════════════════════════════════════════════════════════════════════
+import os
+import uuid
+from fastapi import UploadFile, File
+
+_ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+_MAX_SIZE    = 5 * 1024 * 1024  # 5 MB
+_AVATAR_DIR  = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads", "avatars")
+
+
+@router.post("/{id_user}/photo")
+async def upload_photo_profil(
+    id_user: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Upload d'une photo de profil. Retourne l'URL relative `/uploads/avatars/...`"""
+    user = db.get(Utilisateur, id_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    # Validation extension
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _ALLOWED_EXT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Format non supporte. Autorises: {', '.join(_ALLOWED_EXT)}",
+        )
+
+    # Validation taille (lecture du contenu)
+    content = await file.read()
+    if len(content) > _MAX_SIZE:
+        raise HTTPException(status_code=400, detail="Fichier trop volumineux (max 5 MB)")
+
+    # Supprimer l'ancienne photo si existante
+    if user.photo_url:
+        old_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            user.photo_url.lstrip("/"),
+        )
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    # Sauvegarder le nouveau fichier
+    os.makedirs(_AVATAR_DIR, exist_ok=True)
+    filename = f"user_{id_user}_{uuid.uuid4().hex[:8]}{ext}"
+    file_path = os.path.join(_AVATAR_DIR, filename)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # URL relative servie via le mount /uploads
+    photo_url = f"/uploads/avatars/{filename}"
+    user.photo_url = photo_url
+    db.commit()
+    db.refresh(user)
+
+    return {"photo_url": photo_url, "user": user_to_dict(user, db)}
+
+
+@router.delete("/{id_user}/photo")
+def supprimer_photo_profil(id_user: int, db: Session = Depends(get_db)):
+    """Supprime la photo de profil."""
+    user = db.get(Utilisateur, id_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    if user.photo_url:
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            user.photo_url.lstrip("/"),
+        )
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    user.photo_url = None
+    db.commit()
+    return {"message": "Photo supprimee", "user": user_to_dict(user, db)}
