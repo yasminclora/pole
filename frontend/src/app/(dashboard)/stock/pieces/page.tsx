@@ -6,18 +6,16 @@ import { RootState } from '@/store/store'
 import api from '@/services/axiosInstance'
 import {
   Loader2, Package, Search, Plus, AlertOctagon, AlertTriangle,
-  CheckCircle2, MapPin, Hash, ChevronRight, RefreshCw, Boxes,
+  CheckCircle2, Hash, ChevronRight, RefreshCw, Boxes,
+  PackagePlus, X, Save,
 } from 'lucide-react'
 
 interface Piece {
   id_piece:    number
   code_stock:  string
   designation: string
-  description?: string
   quantite:     number
   seuil_alerte: number
-  emplacement?: string
-  unite:        string
   composantes_liees?: { equipment_code: string; description: string; level: number }[]
 }
 
@@ -59,6 +57,47 @@ export default function PiecesPage() {
   const [page, setPage]           = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal]         = useState(0)
+
+  // ── Modale d'ajustement de stock ─────────────────────────────────
+  const [adjustingPiece, setAdjustingPiece] = useState<Piece | null>(null)
+  const [adjustMode,     setAdjustMode]     = useState<'add' | 'set'>('add')
+  const [adjustValue,    setAdjustValue]    = useState<number>(0)
+  const [adjustSeuil,    setAdjustSeuil]    = useState<number>(2)
+  const [saving,         setSaving]         = useState(false)
+  const [adjustError,    setAdjustError]    = useState<string | null>(null)
+
+  const openAdjust = (p: Piece) => {
+    setAdjustingPiece(p)
+    setAdjustMode('add')
+    setAdjustValue(0)
+    setAdjustSeuil(p.seuil_alerte)
+    setAdjustError(null)
+  }
+  const closeAdjust = () => {
+    if (saving) return
+    setAdjustingPiece(null)
+    setAdjustError(null)
+  }
+  const handleAdjust = async () => {
+    if (!adjustingPiece) return
+    setSaving(true); setAdjustError(null)
+    try {
+      const newQte = adjustMode === 'add'
+        ? adjustingPiece.quantite + adjustValue
+        : adjustValue
+      if (newQte < 0) { setAdjustError('Quantité finale négative impossible'); setSaving(false); return }
+      await api.put(`/stock/pieces/${adjustingPiece.id_piece}`, {
+        quantite:     newQte,
+        seuil_alerte: adjustSeuil,
+      })
+      closeAdjust()
+      fetchPieces()
+    } catch (err: any) {
+      setAdjustError(err?.response?.data?.detail ?? 'Erreur lors de la mise à jour')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const fetchPieces = useCallback(async () => {
     setLoading(true)
@@ -204,7 +243,7 @@ export default function PiecesPage() {
                   <div className="flex items-baseline justify-between">
                     <div>
                       <div className={`text-2xl font-bold tabular-nums ${cfg.text}`}>{p.quantite}</div>
-                      <div className="text-[10px] text-gray-500">{p.unite ?? 'pcs'} disponibles</div>
+                      <div className="text-[10px] text-gray-500">unités disponibles</div>
                     </div>
                     <div className="text-right">
                       <div className="text-[10px] text-gray-500">Seuil alerte</div>
@@ -213,11 +252,15 @@ export default function PiecesPage() {
                   </div>
                 </div>
 
-                {p.emplacement && (
-                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <MapPin size={11} />
-                    <span className="truncate">{p.emplacement}</span>
-                  </div>
+                {canEdit && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openAdjust(p) }}
+                    className="mt-2 w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg
+                               border border-blue-200 bg-blue-50 text-blue-700 text-xs font-semibold
+                               hover:bg-blue-100 hover:border-blue-300 transition"
+                  >
+                    <PackagePlus size={13}/> Ajuster le stock
+                  </button>
                 )}
 
                 {p.composantes_liees && p.composantes_liees.length > 0 && (
@@ -244,6 +287,144 @@ export default function PiecesPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* ═══ Modale d'ajustement de stock ═══ */}
+      {adjustingPiece && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+          onClick={closeAdjust}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0">
+                  <PackagePlus size={20}/>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-blue-100">Ajustement de stock</p>
+                  <h2 className="font-mono font-bold text-base truncate">{adjustingPiece.code_stock}</h2>
+                  <p className="text-xs text-blue-100 truncate">{adjustingPiece.designation}</p>
+                </div>
+              </div>
+              <button onClick={closeAdjust} disabled={saving}
+                      className="p-2 rounded-lg hover:bg-white/15 transition disabled:opacity-50">
+                <X size={16}/>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              {/* État actuel */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Quantité actuelle</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-1">{adjustingPiece.quantite}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Seuil actuel</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-1">{adjustingPiece.seuil_alerte}</p>
+                </div>
+              </div>
+
+              {/* Mode */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">
+                  Mode d'ajustement
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setAdjustMode('add')}
+                    className={`px-3 py-2 rounded-lg text-sm font-semibold transition border ${
+                      adjustMode === 'add'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    ➕ Ajouter (livraison)
+                  </button>
+                  <button
+                    onClick={() => setAdjustMode('set')}
+                    className={`px-3 py-2 rounded-lg text-sm font-semibold transition border ${
+                      adjustMode === 'set'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    🎯 Fixer (inventaire)
+                  </button>
+                </div>
+              </div>
+
+              {/* Valeur */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">
+                  {adjustMode === 'add' ? 'Quantité à ajouter' : 'Nouvelle quantité totale'}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={adjustValue}
+                  onChange={e => setAdjustValue(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-lg text-2xl font-bold text-center
+                             focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition"
+                  autoFocus
+                />
+                {adjustMode === 'add' && adjustValue > 0 && (
+                  <p className="text-xs text-emerald-600 font-semibold mt-1.5 text-center">
+                    → Nouvelle quantité : {adjustingPiece.quantite + adjustValue} unités
+                  </p>
+                )}
+              </div>
+
+              {/* Seuil */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">
+                  Seuil d'alerte
+                  <span className="text-[10px] text-slate-400 font-normal ml-1 normal-case">
+                    (modifiable)
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={adjustSeuil}
+                  onChange={e => setAdjustSeuil(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm
+                             focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {adjustError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs flex items-center gap-2">
+                  <AlertTriangle size={14}/> {adjustError}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                onClick={closeAdjust} disabled={saving}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50 transition"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleAdjust} disabled={saving}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow disabled:opacity-50 transition"
+              >
+                {saving
+                  ? <><Loader2 size={14} className="animate-spin"/> Mise à jour…</>
+                  : <><Save size={14}/> Confirmer</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -12,7 +12,6 @@ import { Loader2, RefreshCw, X, Check, Bell, Eye, FileText, MapPin, Factory, Use
 const CLASSES = [
   { value: 'MECANIQUE', label: 'Mecanique' },
   { value: 'ELECTRIQUE', label: 'Electrique' },
-  { value: 'GLOBALE', label: 'Electro-mecano' },
 ]
 
 // Niveau d'urgence : on garde le terme "niveau" cohérent avec la DI du mécanicien.

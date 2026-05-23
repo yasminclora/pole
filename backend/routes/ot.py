@@ -49,7 +49,7 @@ def get_quart_equipe(equipe: Equipe, target_date: date) -> str:
 @router.get("/users-disponibles")
 def get_users_disponibles(
     id_pole: int = 0,
-    classe: str = "GLOBALE",
+    classe: str = "MECANIQUE",
     date_prevue: str | None = None,
     db: Session = Depends(get_db)
 ):
@@ -76,10 +76,8 @@ def get_users_disponibles(
         allowed_roles = [RoleEnum.MECANICIEN]
     elif classe == "ELECTRIQUE":
         allowed_roles = [RoleEnum.TECHNICIEN]
-    elif classe == "GLOBALE":
-        allowed_roles = [RoleEnum.CHEF_EQUIPE]
     else:
-        allowed_roles = [RoleEnum.MECANICIEN, RoleEnum.CHEF_EQUIPE]
+        allowed_roles = [RoleEnum.MECANICIEN, RoleEnum.TECHNICIEN]
     
     # Récupérer les utilisateurs du pôle avec les bons rôles
     users = db.query(Utilisateur).filter(
@@ -499,9 +497,20 @@ async def assigner_ot(id_ot: int, data: dict, db: Session = Depends(get_db)):
         ot = db.get(OrdreTravail, id_ot)
         if not ot:
             raise HTTPException(status_code=404, detail="OT introuvable")
-        if ot.statut not in [StatutOT.CREE, StatutOT.REJETE]:
-            raise HTTPException(status_code=400,
-                                detail="OT ne peut pas être assigné")
+        # Statuts autorisés : CREE (jamais assigné), REJETE (à reprendre),
+        # ASSIGNE (réassignation à un autre mécanicien avant démarrage),
+        # REWORK (rejet CE → on peut réassigner avant que le méca recommence)
+        statut_courant = str(ot.statut) if ot.statut else ""
+        if statut_courant not in (
+            StatutOT.CREE.value,
+            StatutOT.REJETE.value,
+            StatutOT.ASSIGNE.value,
+            StatutOT.REWORK.value,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"OT ne peut pas être assigné (statut actuel : {statut_courant})",
+            )
 
         # Vérifier que l'assigné principal existe
         assigne = db.get(Utilisateur, data["id_assigne"])

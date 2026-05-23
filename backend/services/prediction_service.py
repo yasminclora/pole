@@ -207,7 +207,7 @@ def create_ot_predictif(db: Session, data: dict) -> dict:
     ).scalar() or 0
     numero_ot = f"OT-PREDICTIF-{annee}-{count+1:04d}"
 
-    classe_map   = {"MECANIQUE":ClasseOT.MECANIQUE,"ELECTRIQUE":ClasseOT.ELECTRIQUE,"GLOBALE":ClasseOT.GLOBALE}
+    classe_map   = {"MECANIQUE":ClasseOT.MECANIQUE,"ELECTRIQUE":ClasseOT.ELECTRIQUE}
     # Mapping legacy (priorite ancienne) -> NIVEAU_1/2/3
     urgence_map_legacy = {"FAIBLE":"NIVEAU_1","NORMALE":"NIVEAU_1","HAUTE":"NIVEAU_2","CRITIQUE":"NIVEAU_3"}
 

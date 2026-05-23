@@ -411,7 +411,7 @@ def get_planning_pole(id_pole: int, db: Session = Depends(get_db)):
 def get_utilisateurs_disponibles(
     id_pole: int,
     date_cible: str,  # YYYY-MM-DD
-    classe: str,     # MECANIQUE, ELECTRIQUE, GLOBALE
+    classe: str,     # MECANIQUE, ELECTRIQUE
     db: Session = Depends(get_db)
 ):
     """
@@ -450,7 +450,6 @@ def get_utilisateurs_disponibles(
                 continue
             if classe == "ELECTRIQUE" and user.role != RoleEnum.TECHNICIEN:
                 continue
-            # GLOBALE includes all
             
             result.append({
                 "id": user.id_user,

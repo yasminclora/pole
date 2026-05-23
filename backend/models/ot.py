@@ -16,7 +16,6 @@ class TypeOT(str, enum.Enum):
 class ClasseOT(str, enum.Enum):
     MECANIQUE  = "MECANIQUE"   # → mécanicien
     ELECTRIQUE = "ELECTRIQUE"  # → technicien
-    GLOBALE    = "GLOBALE"     # → les deux
 
 
 class UrgenceOT(str, enum.Enum):
@@ -57,7 +56,8 @@ class OrdreTravail(Base):
 
     # Type et classe
     type_ot         = Column(SAEnum(TypeOT),     nullable=False)
-    classe          = Column(SAEnum(ClasseOT),   nullable=False)
+    # Stocke MECANIQUE / ELECTRIQUE (varchar pour eviter ALTER TYPE)
+    classe          = Column(String(20),         nullable=False, default=ClasseOT.MECANIQUE.value)
     # urgence = NIVEAU_1 / NIVEAU_2 / NIVEAU_3 (cohérent avec DI.urgence)
     urgence         = Column(String(20),         default="NIVEAU_1")
     # Stocke CREE / ASSIGNE / EN_COURS / TERMINE / REWORK / VALIDE_CE / VALIDE_HSE / ARCHIVE / REJETE

@@ -559,7 +559,6 @@ function OTPredictifModal({ code, rulJours, statut, onClose }: {
                 className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
                 <option value="MECANIQUE">Mécanique</option>
                 <option value="ELECTRIQUE">Électrique</option>
-                <option value="GLOBALE">Mécano-électrique</option>
               </select>
             </Field>
             <Field label="Priorité">

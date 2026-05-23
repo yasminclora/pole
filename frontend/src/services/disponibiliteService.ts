@@ -34,7 +34,7 @@ export const disponibiliteService = {
   getUsersDisponibles: async (params: {
     id_pole: number
     date_cible: string  // Can include time like "2026-05-09T10:00"
-    classe: string       // MECANIQUE, ELECTRIQUE, GLOBALE
+    classe: string       // MECANIQUE, ELECTRIQUE
   }) => {
     const equipesRes = await api.get(`/equipes/pole/${params.id_pole}`)
     const equipes = equipesRes.data
@@ -59,12 +59,10 @@ export const disponibiliteService = {
       const membres = eq.membres || []
       
       for (const m of membres) {
-        // For MECANO_ELECTRO (Electro-mecano): include both MECANICIEN and TECHNICIEN
         // For MECANIQUE: only MECANICIEN
         // For ELECTRIQUE: only TECHNICIEN
         if (params.classe === 'MECANIQUE' && m.role !== 'MECANICIEN') continue
         if (params.classe === 'ELECTRIQUE' && m.role !== 'TECHNICIEN') continue
-        if (params.classe === 'MECANO_ELECTRO' && !['MECANICIEN', 'TECHNICIEN'].includes(m.role)) continue
         
         result.push({
           id: m.id_user,
@@ -94,7 +92,6 @@ export const disponibiliteService = {
       for (const m of membres) {
         if (classe === 'MECANIQUE' && m.role !== 'MECANICIEN') continue
         if (classe === 'ELECTRIQUE' && m.role !== 'TECHNICIEN') continue
-        if (classe === 'MECANO_ELECTRO' && !['MECANICIEN', 'TECHNICIEN'].includes(m.role)) continue
         
         result.push({
           id: m.id_user,

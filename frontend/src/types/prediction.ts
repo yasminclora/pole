@@ -123,7 +123,7 @@ export interface FiltresDashboard {
 
 export interface OTPredictifPayload {
   equipment_code : string
-  classe         : 'MECANIQUE' | 'ELECTRIQUE' | 'GLOBALE'
+  classe         : 'MECANIQUE' | 'ELECTRIQUE'
   priorite       : 'FAIBLE' | 'NORMALE' | 'HAUTE' | 'CRITIQUE'
   date_prevue    : string              // ISO
   duree_estimee  : number              // minutes

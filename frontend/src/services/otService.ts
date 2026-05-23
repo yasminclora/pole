@@ -66,7 +66,7 @@ export const otService = {
   /**
    * @deprecated Utiliser getMecaniciensDisponibles(id_ot) à la place.
    */
-  getDisponibles: async (id_pole: number, classe: string = 'GLOBALE', date_prevue?: string): Promise<UserDisponible[]> => {
+  getDisponibles: async (id_pole: number, classe: string = 'MECANIQUE', date_prevue?: string): Promise<UserDisponible[]> => {
     const params: any = { id_pole, classe }
     if (date_prevue) params.date_prevue = date_prevue
     const res = await api.get('/ot/users-disponibles', { params })

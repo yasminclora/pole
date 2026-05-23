@@ -356,7 +356,6 @@ async def valider_di(id_di: int, data: dict, db: Session = Depends(get_db)):
         classe_map = {
             "MECANIQUE" : ClasseOT.MECANIQUE,
             "ELECTRIQUE": ClasseOT.ELECTRIQUE,
-            "GLOBALE"   : ClasseOT.GLOBALE,
         }
         classe = classe_map.get(str(data.get("classe", "MECANIQUE")).upper(), ClasseOT.MECANIQUE)
 

@@ -47,7 +47,7 @@ export default function AssignModal({ isOpen, onClose, ot, idPole, onAssignSucce
         return
       }
 
-      const otClasse = ot?.classe || 'GLOBALE'
+      const otClasse = ot?.classe || 'MECANIQUE'
       console.log('[AssignModal] Loading users with date:', dateToSend, 'classe:', otClasse)
       
       const data = await otService.getDisponibles(poleId, otClasse, dateToSend || undefined)
@@ -250,7 +250,7 @@ export default function AssignModal({ isOpen, onClose, ot, idPole, onAssignSucce
                 ))}
               </div>
 
-              {/* Second user selection for GLOBALE */}
+              {/* Second user selection (désactivé — canSelectTwo=false) */}
               {canSelectTwo && (
                 <div className="mt-6 pt-6 border-t border-gray-200">
                   <p className="text-sm font-semibold text-gray-700 mb-3">Sélectionner le deuxième intervenant (optionnel):</p>

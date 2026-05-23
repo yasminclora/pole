@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import api from '@/services/axiosInstance'
 import {
-  ArrowLeft, Package, Save, Loader2, Plus, X, Search,
-  CheckCircle2, AlertTriangle, Hash, MapPin, Tag, Cog,
+  ArrowLeft, Package, Save, Loader2, X, Search,
+  CheckCircle2, AlertTriangle, Hash, Tag, Cog,
 } from 'lucide-react'
 
 interface EquipementSuggest {
@@ -21,11 +21,8 @@ export default function NouvellePiecePage() {
   // Champs pièce
   const [codeStock,    setCodeStock]    = useState('')
   const [designation,  setDesignation]  = useState('')
-  const [description,  setDescription]  = useState('')
   const [quantite,     setQuantite]     = useState<number>(0)
   const [seuilAlerte,  setSeuilAlerte]  = useState<number>(2)
-  const [emplacement,  setEmplacement]  = useState('')
-  const [unite,        setUnite]        = useState('pcs')
   const [quantiteType, setQuantiteType] = useState<number>(1)
 
   // Équipements liés
@@ -80,11 +77,8 @@ export default function NouvellePiecePage() {
       const res = await api.post('/stock/pieces/nouvelle', {
         code_stock:      codeStock.trim() || null,
         designation:     designation.trim(),
-        description:     description.trim() || null,
         quantite,
         seuil_alerte:    seuilAlerte,
-        emplacement:     emplacement.trim() || null,
-        unite:           unite.trim() || 'pcs',
         quantite_type:   quantiteType,
         equipment_codes: equipementsLies.map(e => e.equipment_code),
       })
@@ -157,14 +151,6 @@ export default function NouvellePiecePage() {
                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
                    required />
           </Field>
-
-          <Field label="Description" hint="Détails, références constructeur, etc.">
-            <textarea value={description}
-                      onChange={e => setDescription(e.target.value)}
-                      rows={3}
-                      placeholder="Notes techniques, références fournisseur…"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </Field>
         </div>
 
         {/* Bloc stock */}
@@ -179,39 +165,17 @@ export default function NouvellePiecePage() {
                      onChange={e => setQuantite(Math.max(0, parseInt(e.target.value || '0', 10)))}
                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </Field>
-            <Field label="Unité">
-              <select value={unite} onChange={e => setUnite(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="pcs">pcs (pièces)</option>
-                <option value="m">m (mètres)</option>
-                <option value="L">L (litres)</option>
-                <option value="kg">kg (kilogrammes)</option>
-                <option value="boite">boîte</option>
-                <option value="rouleau">rouleau</option>
-              </select>
-            </Field>
             <Field label="Seuil alerte" hint="🔔 ≤ ce seuil = FAIBLE">
               <input type="number" min={0} value={seuilAlerte}
                      onChange={e => setSeuilAlerte(Math.max(0, parseInt(e.target.value || '0', 10)))}
                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </Field>
+            <Field label="Qté/remplacement" hint="Combien pour 1 changement standard">
+              <input type="number" min={1} value={quantiteType}
+                     onChange={e => setQuantiteType(Math.max(1, parseInt(e.target.value || '1', 10)))}
+                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </Field>
           </div>
-
-          <Field label="Emplacement physique" hint="Ex : Rayon A - Étagère 3 - Bac 12">
-            <div className="relative">
-              <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" value={emplacement}
-                     onChange={e => setEmplacement(e.target.value)}
-                     placeholder="Rayon - Étagère - Bac"
-                     className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </Field>
-
-          <Field label="Qté nécessaire par remplacement" hint="Combien de cette pièce faut-il pour un remplacement standard ?">
-            <input type="number" min={1} value={quantiteType}
-                   onChange={e => setQuantiteType(Math.max(1, parseInt(e.target.value || '1', 10)))}
-                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </Field>
         </div>
 
         {/* Bloc équipements liés */}
